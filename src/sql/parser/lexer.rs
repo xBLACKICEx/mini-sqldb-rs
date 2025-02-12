@@ -1,4 +1,5 @@
 use crate::error::{Error, Result};
+use std::fmt::Display;
 use std::iter::Peekable;
 use std::str::Chars;
 
@@ -27,6 +28,25 @@ pub enum Token {
     Minus, // Minus -
 
     Slash, // Slash /
+}
+
+impl Display for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Token::Keyword(k) => write!(f, "{}", k),
+            Token::Ident(s) => write!(f, "{}", s),
+            Token::String(s) => write!(f, "{}", s),
+            Token::Number(n) => write!(f, "{}", n),
+            Token::OpenParen => write!(f, "("),
+            Token::CloseParen => write!(f, ")"),
+            Token::Comma => write!(f, ","),
+            Token::Semicolon => write!(f, ";"),
+            Token::Asterisk => write!(f, "*"),
+            Token::Plus => write!(f, "+"),
+            Token::Minus => write!(f, "-"),
+            Token::Slash => write!(f, "/"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -89,7 +109,32 @@ impl Keyword {
 
 impl std::fmt::Display for Keyword {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        let keyword = match self {
+            Keyword::Create => "CREATE",
+            Keyword::Table => "TABLE",
+            Keyword::Int => "INT",
+            Keyword::Integer => "INTEGER",
+            Keyword::Boolean => "BOOLEAN",
+            Keyword::Bool => "BOOL",
+            Keyword::String => "STRING",
+            Keyword::Text => "TEXT",
+            Keyword::Varchar => "VARCHAR",
+            Keyword::Float => "FLOAT",
+            Keyword::Double => "DOUBLE",
+            Keyword::Select => "SELECT",
+            Keyword::From => "FROM",
+            Keyword::Insert => "INSERT",
+            Keyword::Into => "INTO",
+            Keyword::Values => "VALUES",
+            Keyword::True => "TRUE",
+            Keyword::False => "FALSE",
+            Keyword::Default => "DEFAULT",
+            Keyword::Not => "NOT",
+            Keyword::Null => "NULL",
+            Keyword::Primary => "PRIMARY",
+            Keyword::Key => "KEY",
+        };
+        write!(f, "{}", keyword)
     }
 }
 
@@ -132,7 +177,7 @@ impl<'a> Lexer<'a> {
     }
 
     // Remove whitespace characters
-    // eg. selct *       from        t;
+    // eg. select *       from        t;
     fn erase_whitespace(&mut self) {
         self.next_while(char::is_whitespace);
     }
@@ -187,9 +232,9 @@ impl<'a> Lexer<'a> {
                 Some('\'') => break,
                 Some(c) => val.push(c),
                 None => {
-                    return Err(Error::ParserError(format!(
-                        "[Lexer] Unexpected end of string"
-                    )))
+                    return Err(Error::ParserError(
+                        "[Lexer] Unexpected end of string".to_string(),
+                    ))
                 }
             }
         }
@@ -217,10 +262,9 @@ impl<'a> Lexer<'a> {
     fn scan_ident(&mut self) -> Option<Token> {
         let mut val = self.next_if(char::is_alphabetic)?.to_string();
 
-        val.push_str(
-            self.next_while(|c| c.is_alphanumeric() || c == '_')?
-                .as_str(),
-        );
+        while let Some(c) = self.next_if(|c| c.is_alphanumeric() || c == '_') {
+            val.push(c);
+        }
 
         Keyword::from_str(&val).map_or(Some(Token::Ident(val)), |k| Some(Token::Keyword(k)))
     }
@@ -271,49 +315,12 @@ mod tests {
     };
 
     #[test]
-    fn test_lexer_crate_table() -> Result<()> {
-        let tokens1 = Lexer::new(
-            "
-            CREATE table tbl
-            (
-                id1 int primary key,
-                id2 integer
-            );
-            ",
-        )
-        .peekable()
-        .collect::<Result<Vec<_>>>()?;
-
-        println!("{:?}", tokens1);
-
-        assert_eq!(
-            tokens1,
-            vec![
-                Token::Keyword(Keyword::Create),
-                Token::Keyword(Keyword::Table),
-                Token::Ident("tbl".to_string()),
-                Token::OpenParen,
-                Token::Ident("id1".to_string()),
-                Token::Keyword(Keyword::Int),
-                Token::Keyword(Keyword::Primary),
-                Token::Keyword(Keyword::Key),
-                Token::Comma,
-                Token::Ident("id2".to_string()),
-                Token::Keyword(Keyword::Integer),
-                Token::CloseParen,
-                Token::Semicolon
-            ]
-        );
-        Ok(())
-    }
-    #[test]
-
     fn test_lexer_create_table() -> Result<()> {
         let tokens1 = Lexer::new(
             "
                     CREATE table tbl
                     (
-                        id1 int primary key,
+                        a int primary key,
                         id2 integer
                     );
                     ",
@@ -328,7 +335,7 @@ mod tests {
                 Token::Keyword(Keyword::Table),
                 Token::Ident("tbl".to_string()),
                 Token::OpenParen,
-                Token::Ident("id1".to_string()),
+                Token::Ident("a".to_string()),
                 Token::Keyword(Keyword::Int),
                 Token::Keyword(Keyword::Primary),
                 Token::Keyword(Keyword::Key),
