@@ -4,7 +4,7 @@ use ast::Column;
 use lexer::{Keyword, Lexer, Token};
 use std::iter::Peekable;
 
-mod ast;
+pub(super) mod ast;
 mod lexer;
 
 pub struct Parser<'a> {
