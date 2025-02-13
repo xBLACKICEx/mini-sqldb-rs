@@ -15,6 +15,40 @@ impl Planner {
     }
 
     fn build_statement(&mut self, stmt: ast::Statement) -> Node {
-        todo!()
+        match stmt {
+            ast::Statement::CreateTable { name, columns } => Node::CreateTable {
+                schema: Table {
+                    name,
+                    columns: columns
+                        .into_iter()
+                        .map(|c| {
+                            let nullable = c.nullable.unwrap_or(true);
+                            let default = match c.default {
+                                Some(express) => Some(Value::from(express)),
+                                None if nullable => Some(Value::Null),
+                                None => None,
+                            };
+
+                            schema::Column {
+                                name: c.name,
+                                datatype: c.data_type,
+                                nullable,
+                                default,
+                            }
+                        })
+                        .collect(),
+                },
+            },
+            ast::Statement::Insert {
+                table_name,
+                columns,
+                values,
+            } => Node::Insert {
+                table_name,
+                values,
+                columns: columns.unwrap_or_default(),
+            },
+            ast::Statement::Select { table_name } => Node::Scan { table_name },
+        }
     }
 }
