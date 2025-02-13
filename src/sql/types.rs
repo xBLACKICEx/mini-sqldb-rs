@@ -30,3 +30,5 @@ impl From<Expression> for Value {
         }
     }
 }
+
+pub type Row = Vec<Value>;
