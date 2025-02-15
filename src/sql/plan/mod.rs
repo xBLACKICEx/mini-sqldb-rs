@@ -1,8 +1,13 @@
+use super::{
+    engine::Transaction,
+    executor::{Executor, ResultSet},
+};
+use crate::error::Result;
 use crate::sql::{parser::ast, parser::ast::Expression, plan::planner::Planner, schema::Table};
 
 mod planner;
 
-// Execution Node
+/// Execution Node
 #[derive(Debug, PartialEq)]
 pub enum Node {
     // Create Table
@@ -24,22 +29,25 @@ pub enum Node {
 }
 
 #[derive(Debug, PartialEq)]
-// Execution Plan Definition, the bottom layer is different types of execution nodes
+/// Execution Plan Definition, the bottom layer is different types of execution nodes
 pub struct Plan(pub Node);
 
 impl Plan {
     pub fn build(stmt: ast::Statement) -> Self {
         Planner::new().build(stmt)
     }
+
+    pub fn execute<T: Transaction>(self, txn: &mut T) -> Result<ResultSet> {
+        <dyn Executor<T>>::build(self.0).execute(txn)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::*;
     use crate::sql::parser::Parser;
     use crate::sql::schema::Column;
-    use crate::sql::types::{DataType, Value, Value::Null};
+    use crate::sql::types::{DataType, Value};
     #[test]
     fn test_plan_create_table() -> Result<()> {
         let sql = "

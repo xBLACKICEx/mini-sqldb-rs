@@ -19,7 +19,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // Parse to get the abstract syntax tree
+    /// Parse to get the abstract syntax tree
     pub fn parse(&mut self) -> Result<ast::Statement> {
         let stmt = self.parse_statement()?;
         // Expect a semicolon at the end of the SQL statement

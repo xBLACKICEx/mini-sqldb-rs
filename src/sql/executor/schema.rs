@@ -1,5 +1,8 @@
-use crate::{error::Result, sql::schema::Table};
 use super::{Executor, ResultSet};
+use crate::{
+    error::Result,
+    sql::{engine::Transaction, schema::Table},
+};
 
 // Crate table
 pub struct CreateTable {
@@ -12,8 +15,9 @@ impl CreateTable {
     }
 }
 
-impl Executor for CreateTable {
-    fn execute(&self) -> Result<ResultSet> {
+impl<T: Transaction> Executor<T> for CreateTable {
+    fn execute(&self, txn: &mut T) -> Result<ResultSet> {
         todo!()
     }
 }
+  
