@@ -138,33 +138,33 @@ impl std::fmt::Display for Keyword {
     }
 }
 
-// Lexical Analyzer Lexer Definition
-// Currently supported SQL syntax
-// 1. Create Table
-// -------------------------------------
-// CREATE TABLE table_name (
-//     [ column_name data_type [ column_constraint [...] ] ]
-//     [, ... ]
-//    );
-//
-//    where data_type is:
-//     - BOOLEAN(BOOL): true | false
-//     - FLOAT(DOUBLE)
-//     - INTEGER(INT)
-//     - STRING(TEXT, VARCHAR)
-//
-//    where column_constraint is:
-//    [ NOT NULL | NULL | DEFAULT expr ]
-//
-// 2. Insert Into
-// -------------------------------------
-// INSERT INTO table_name
-// [ ( column_name [, ...] ) ]
-// values ( expr [, ...] );
-//
-// 3. Select * From
-// -------------------------------------
-// SELECT * FROM table_name;
+/// Lexical Analyzer Lexer Definition
+/// Currently supported SQL syntax
+/// 1. Create Table
+/// -------------------------------------
+/// CREATE TABLE table_name (
+///     [ column_name data_type [ column_constraint [...] ] ]
+///     [, ... ]
+///    );
+///
+///    where data_type is:
+///     - BOOLEAN(BOOL): true | false
+///     - FLOAT(DOUBLE)
+///     - INTEGER(INT)
+///     - STRING(TEXT, VARCHAR)
+///
+///    where column_constraint is:
+///    [ NOT NULL | NULL | DEFAULT expr ]
+///
+/// 2. Insert Into
+/// -------------------------------------
+/// INSERT INTO table_name
+/// [ ( column_name [, ...] ) ]
+/// values ( expr [, ...] );
+///
+/// 3. Select * From
+/// -------------------------------------
+/// SELECT * FROM table_name;
 pub struct Lexer<'a> {
     iter: Peekable<Chars<'a>>,
 }
