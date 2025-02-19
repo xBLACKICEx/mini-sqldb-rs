@@ -1,5 +1,5 @@
 use super::{executor::ResultSet, parser::Parser, plan::Plan, schema::Table, types::Row};
-use crate::error::Result;
+use crate::error::{Error, Result};
 
 mod kv;
 
@@ -33,7 +33,14 @@ pub trait Transaction {
     fn crate_table(&mut self, table: Table) -> Result<()>;
 
     // Get table info
-    fn get_table(&self, table_name: String) -> Result<Option<Table>>;
+    fn get_table(&self, table_name: &str) -> Result<Option<Table>>;
+
+    fn must_get_table(&self, table_name: &str) -> Result<Table> {
+        self.get_table(table_name)?
+            .ok_or(Error::InternalError(format!(
+                "table {table_name} does not exist"
+            )))
+    }
 }
 
 /// Client SQL Session definition

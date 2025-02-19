@@ -16,8 +16,10 @@ impl CreateTable {
 }
 
 impl<T: Transaction> Executor<T> for CreateTable {
-    fn execute(&self, txn: &mut T) -> Result<ResultSet> {
-        todo!()
+    fn execute(self: Box<Self>, txn: &mut T) -> Result<ResultSet> {
+        let table_name = self.schema.name.clone();
+        txn.crate_table(self.schema)?;
+
+        Ok(ResultSet::CrateTable { table_name })
     }
 }
-  

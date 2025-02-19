@@ -1,6 +1,7 @@
 use crate::sql::parser::ast::Expression;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum DataType {
     Boolean,
     Float,
@@ -8,13 +9,25 @@ pub enum DataType {
     String,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Value {
     Null,
     Boolean(bool),
     Integer(i64),
     Float(f64),
     String(String),
+}
+
+impl Value {
+    pub fn datatype(&self) -> Option<DataType> {
+        match self {
+            Self::Null => None,
+            Self::Boolean(_) => Some(DataType::Boolean),
+            Self::Integer(_) => Some(DataType::Integer),
+            Self::Float(_) => Some(DataType::Float),
+            Self::String(_) => Some(DataType::String),
+        }
+    }
 }
 
 impl From<Expression> for Value {
