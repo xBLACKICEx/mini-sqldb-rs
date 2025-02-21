@@ -3,7 +3,7 @@ use std::ops::{Bound, RangeBounds};
 use crate::error::Result;
 
 pub trait Engine {
-    type EenginIterator<'a>: EngineIterator
+    type EngineIterator<'a>: EngineIterator
     where
         Self: 'a;
 
@@ -13,12 +13,12 @@ pub trait Engine {
     // get the value of a key
     fn get(&self, key: Vec<u8>) -> Result<Option<Vec<u8>>>;
 
-    // delete a key coreesponding value if not exist ignore
+    // delete a key corresponding value if not exist ignore
     fn delete(&mut self, key: Vec<u8>) -> Result<()>;
 
-    fn scan(&mut self, range: impl RangeBounds<Vec<u8>>) -> Self::EenginIterator<'_>;
+    fn scan(&mut self, range: impl RangeBounds<Vec<u8>>) -> Self::EngineIterator<'_>;
 
-    fn scan_prefix(&mut self, mut prefix: Vec<u8>) -> Self::EenginIterator<'_> {
+    fn scan_prefix(&mut self, mut prefix: Vec<u8>) -> Self::EngineIterator<'_> {
         // start: aaaa
         // end: aaab
         let start = Bound::Included(prefix.clone());

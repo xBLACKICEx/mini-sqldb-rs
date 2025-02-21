@@ -25,12 +25,12 @@ pub trait Transaction {
     // Rollback the transaction
     fn rollback(&mut self) -> Result<()>;
 
+    // DDL operations
+    fn crate_table(&mut self, table: Table) -> Result<()>;
+
     fn create_row(&mut self, table: String, raw: Row) -> Result<()>;
 
     fn scan_table(&self, table_name: String) -> Result<Vec<Row>>;
-
-    // DDL operations
-    fn crate_table(&mut self, table: Table) -> Result<()>;
 
     // Get table info
     fn get_table(&self, table_name: &str) -> Result<Option<Table>>;
@@ -51,20 +51,18 @@ pub struct Session<E: Engine> {
 impl<E: Engine> Session<E> {
     /// Execute client SQL statements
     pub fn execute(&self, sql: &str) -> Result<ResultSet> {
-        match Parser::new(sql).parse()? {
-            stmt => {
-                let mut txn = self.engine.begin()?;
-                // Build plan and execute SQL statement
-                match Plan::build(stmt).execute(&mut txn) {
-                    Ok(rs) => {
-                        txn.commit()?;
-                        Ok(rs)
-                    }
-                    Err(e) => {
-                        txn.rollback()?;
-                        Err(e)
-                    }
-                }
+        let stmt = Parser::new(sql).parse()?;
+        let mut txn = self.engine.begin()?;
+
+        // Build plan and execute SQL statement
+        match Plan::build(stmt).execute(&mut txn) {
+            Ok(rs) => {
+                txn.commit()?;
+                Ok(rs)
+            }
+            Err(e) => {
+                txn.rollback()?;
+                Err(e)
             }
         }
     }

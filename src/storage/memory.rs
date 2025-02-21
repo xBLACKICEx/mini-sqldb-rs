@@ -15,7 +15,7 @@ impl MemoryEngine {
 }
 
 impl Engine for MemoryEngine {
-    type EenginIterator<'a> = MemoryEngineIterator<'a>;
+    type EngineIterator<'a> = MemoryEngineIterator<'a>;
 
     fn set(&mut self, key: Vec<u8>, value: Vec<u8>) -> Result<()> {
         self.data.insert(key, value);
@@ -33,7 +33,7 @@ impl Engine for MemoryEngine {
         Ok(())
     }
 
-    fn scan(&mut self, range: impl std::ops::RangeBounds<Vec<u8>>) -> Self::EenginIterator<'_> {
+    fn scan(&mut self, range: impl std::ops::RangeBounds<Vec<u8>>) -> Self::EngineIterator<'_> {
         MemoryEngineIterator {
             inner: self.data.range(range),
         }

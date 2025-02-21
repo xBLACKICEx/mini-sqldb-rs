@@ -55,6 +55,31 @@ impl<E: storage::Engine> Transaction for KVTransaction<E> {
         Ok(())
     }
 
+    fn crate_table(&mut self, table: Table) -> Result<()> {
+        // check if table exists
+        if self.get_table(&table.name)?.is_some() {
+            return Err(Error::InternalError(format!(
+                "Table {} already exists",
+                table.name
+            )));
+        }
+
+        // Validate the table
+        if table.columns.is_empty() {
+            return Err(Error::InternalError(format!(
+                "Table {} has no columns",
+                table.name
+            )));
+        }
+
+        // create table
+        let key = Key::Table(table.name.clone());
+        let value = bincode::serialize(&table)?;
+        self.txn.set(bincode::serialize(&key)?, value)?;
+
+        Ok(())
+    }
+
     fn create_row(&mut self, table_name: String, row: Row) -> Result<()> {
         let table = self.must_get_table(&table_name)?;
         // Validate the row
@@ -87,31 +112,6 @@ impl<E: storage::Engine> Transaction for KVTransaction<E> {
         Ok(())
     }
 
-    fn crate_table(&mut self, table: Table) -> Result<()> {
-        // check if table exists
-        if self.get_table(&table.name)?.is_some() {
-            return Err(Error::InternalError(format!(
-                "Table {} already exists",
-                table.name
-            )));
-        }
-
-        // Validate the table
-        if table.columns.is_empty() {
-            return Err(Error::InternalError(format!(
-                "Table {} has no columns",
-                table.name
-            )));
-        }
-
-        // create table
-        let key = Key::Table(table.name.clone());
-        let value = bincode::serialize(&table)?;
-        self.txn.set(bincode::serialize(&key)?, value)?;
-
-        Ok(())
-    }
-
     fn scan_table(&self, table_name: String) -> Result<Vec<Row>> {
         let prefix = KeyPrefix::Row(table_name.clone());
         let results = self.txn.scan_prefix(bincode::serialize(&prefix)?)?;
@@ -139,7 +139,9 @@ impl<E: storage::Engine> Transaction for KVTransaction<E> {
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Key {
+    /// For table metadata
     Table(String),
+    /// For table rows: (table_name, primary_key_value)
     Row(String, Value),
 }
 
@@ -159,8 +161,8 @@ mod tests {
 
     // Test helper functions module
     mod helpers {
-        use crate::sql::executor::ResultSet;
         use super::*;
+        use crate::sql::executor::ResultSet;
 
         pub fn create_test_table(name: &str) -> Table {
             Table {
@@ -265,7 +267,9 @@ mod tests {
                 Value::String("name".to_string()),
                 Value::Integer(30),
             ];
-            assert!(txn.create_row(table.name.clone(), invalid_type_row).is_err());
+            assert!(txn
+                .create_row(table.name.clone(), invalid_type_row)
+                .is_err());
 
             // Test inserting NULL into a non-nullable column
             let null_in_notnull = vec![
@@ -284,7 +288,8 @@ mod tests {
             let session = kv_engine.session()?;
 
             // Use SQL to create a table
-            let result = session.execute("CREATE TABLE test_table (id INT NOT NULL, name TEXT, age INT);")?;
+            let result = session
+                .execute("CREATE TABLE test_table (id INT NOT NULL, name TEXT, age INT);")?;
             match result {
                 ResultSet::CrateTable { table_name } => {
                     assert_eq!(table_name, "test_table");
@@ -299,7 +304,8 @@ mod tests {
             txn.commit()?;
 
             // Insert data
-            let result = session.execute("INSERT INTO test_table (id, name, age) VALUES (1, 'Alice', 30);")?;
+            let result = session
+                .execute("INSERT INTO test_table (id, name, age) VALUES (1, 'Alice', 30);")?;
             match result {
                 ResultSet::Insert { count } => {
                     assert_eq!(count, 1);
@@ -307,7 +313,8 @@ mod tests {
                 _ => panic!("Expected Insert result"),
             }
 
-            let result = session.execute("INSERT INTO test_table (id, name, age) VALUES (2, 'Bob', 25);")?;
+            let result =
+                session.execute("INSERT INTO test_table (id, name, age) VALUES (2, 'Bob', 25);")?;
             match result {
                 ResultSet::Insert { count } => {
                     assert_eq!(count, 1);
@@ -335,13 +342,21 @@ mod tests {
             session.execute("CREATE TABLE test_table (id INT NOT NULL, name TEXT, age INT);")?;
 
             // Duplicate table creation should fail
-            assert!(session.execute("CREATE TABLE test_table (id INT NOT NULL, name TEXT, age INT);").is_err());
+            assert!(session
+                .execute("CREATE TABLE test_table (id INT NOT NULL, name TEXT, age INT);")
+                .is_err());
 
             // Inserting data with mismatched types should fail
-            assert!(session.execute("INSERT INTO test_table (id, name, age) VALUES ('invalid', 'Charlie', 35);").is_err());
+            assert!(session
+                .execute(
+                    "INSERT INTO test_table (id, name, age) VALUES ('invalid', 'Charlie', 35);"
+                )
+                .is_err());
 
             // Inserting data into a non-existent table should fail
-            assert!(session.execute("INSERT INTO nonexistent (id) VALUES (1);").is_err());
+            assert!(session
+                .execute("INSERT INTO nonexistent (id) VALUES (1);")
+                .is_err());
 
             Ok(())
         }
