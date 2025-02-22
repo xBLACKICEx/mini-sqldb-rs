@@ -11,7 +11,7 @@ pub trait Engine {
     fn set(&mut self, key: Vec<u8>, value: Vec<u8>) -> Result<()>;
 
     // get the value of a key
-    fn get(&self, key: Vec<u8>) -> Result<Option<Vec<u8>>>;
+    fn get(&mut self, key: Vec<u8>) -> Result<Option<Vec<u8>>>;
 
     // delete a key corresponding value if not exist ignore
     fn delete(&mut self, key: Vec<u8>) -> Result<()>;

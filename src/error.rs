@@ -21,6 +21,12 @@ impl From<std::num::ParseFloatError> for Error {
     }
 }
 
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Error::InternalError(err.to_string())
+    }
+}
+
 impl<T> From<PoisonError<T>> for Error {
     fn from(err: PoisonError<T>) -> Self {
         Error::InternalError(err.to_string())
