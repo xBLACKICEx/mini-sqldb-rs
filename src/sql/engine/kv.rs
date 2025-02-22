@@ -157,7 +157,68 @@ mod tests {
     use crate::sql::schema::{Column, Table};
     use crate::sql::types::{DataType, Row, Value};
     use crate::sql::Engine;
-    use crate::storage::memory::MemoryEngine;
+    use crate::storage::{bitcast_disk::BitCastDiskEngine, memory::MemoryEngine};
+
+    // Arrange tests in order
+    #[test]
+    fn test_memory_engine_table_operations() -> Result<()> {
+        helpers::run_table_tests(MemoryEngine::new())
+    }
+
+    #[test]
+    fn test_memory_engine_row_operations() -> Result<()> {
+        helpers::run_row_tests(MemoryEngine::new())
+    }
+
+    #[test]
+    fn test_memory_engine_invalid_row_operations() -> Result<()> {
+        helpers::run_invalid_row_tests(MemoryEngine::new())
+    }
+
+    #[test]
+    fn test_memory_engine_sql_operations() -> Result<()> {
+        helpers::run_sql_tests(MemoryEngine::new())
+    }
+
+    #[test]
+    fn test_memory_engine_sql_error_cases() -> Result<()> {
+        helpers::run_sql_error_tests(MemoryEngine::new())
+    }
+
+    #[test]
+    fn test_bitcast_disk_engine_table_operations() -> Result<()> {
+        let mut temp_file = std::env::temp_dir();
+        temp_file.push("sqldb-bitcast/test_bitcast_disk_table.mrdb.log");
+        helpers::run_table_tests(BitCastDiskEngine::new(temp_file.clone())?)
+    }
+
+    #[test]
+    fn test_bitcast_disk_engine_row_operations() -> Result<()> {
+        let mut temp_file = std::env::temp_dir();
+        temp_file.push("sqldb-bitcast/test_bitcast_disk_row.mrdb.log");
+        helpers::run_row_tests(BitCastDiskEngine::new(temp_file.clone())?)
+    }
+
+    #[test]
+    fn test_bitcast_disk_engine_invalid_row_operations() -> Result<()> {
+        let mut temp_file = std::env::temp_dir();
+        temp_file.push("sqldb-bitcast/test_bitcast_disk_invalid_row.mrdb.log");
+        helpers::run_invalid_row_tests(BitCastDiskEngine::new(temp_file.clone())?)
+    }
+
+    #[test]
+    fn test_bitcast_disk_engine_sql_operations() -> Result<()> {
+        let mut temp_file = std::env::temp_dir();
+        temp_file.push("sqldb-bitcast/test_bitcast_disk_sql.mrdb.log");
+        helpers::run_sql_tests(BitCastDiskEngine::new(temp_file.clone())?)
+    }
+
+    #[test]
+    fn test_bitcast_disk_engine_sql_error_cases() -> Result<()> {
+        let mut temp_file = std::env::temp_dir();
+        temp_file.push("sqldb-bitcast/test_bitcast_disk_sql_error.mrdb.log");
+        helpers::run_sql_error_tests(BitCastDiskEngine::new(temp_file.clone())?)
+    }
 
     // Test helper functions module
     mod helpers {
@@ -313,8 +374,8 @@ mod tests {
                 _ => panic!("Expected Insert result"),
             }
 
-            let result =
-                session.execute("INSERT INTO test_table (id, name, age) VALUES (2, 'Bob', 25);")?;
+            // Insert data without column
+            let result = session.execute("INSERT INTO test_table VALUES (2, 'Bob', 25);")?;
             match result {
                 ResultSet::Insert { count } => {
                     assert_eq!(count, 1);
@@ -357,34 +418,7 @@ mod tests {
             assert!(session
                 .execute("INSERT INTO nonexistent (id) VALUES (1);")
                 .is_err());
-
             Ok(())
         }
-    }
-
-    // Arrange tests in order
-    #[test]
-    fn test_memory_engine_table_operations() -> Result<()> {
-        helpers::run_table_tests(MemoryEngine::new())
-    }
-
-    #[test]
-    fn test_memory_engine_row_operations() -> Result<()> {
-        helpers::run_row_tests(MemoryEngine::new())
-    }
-
-    #[test]
-    fn test_memory_engine_invalid_row_operations() -> Result<()> {
-        helpers::run_invalid_row_tests(MemoryEngine::new())
-    }
-
-    #[test]
-    fn test_memory_engine_sql_operations() -> Result<()> {
-        helpers::run_sql_tests(MemoryEngine::new())
-    }
-
-    #[test]
-    fn test_memory_engine_sql_error_cases() -> Result<()> {
-        helpers::run_sql_error_tests(MemoryEngine::new())
     }
 }

@@ -91,10 +91,7 @@ impl<T: Transaction> Executor<T> for Insert {
         let table = txn.must_get_table(&self.table_name)?;
         for expr in self.values {
             // Convert the expression into a value
-            let row = expr
-                .into_iter()
-                .map(|e| Value::from(e))
-                .collect::<Vec<_>>();
+            let row = expr.into_iter().map(|e| Value::from(e)).collect::<Vec<_>>();
             // If the inserted column is not specified
             let insert_row = if self.columns.is_empty() {
                 pad_row(&table, &row)?
