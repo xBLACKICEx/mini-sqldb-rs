@@ -1,8 +1,14 @@
 use crate::error::Result;
 use crate::storage::{self, engine::EngineIterator};
-use std::collections::BTreeMap;
-use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
-use std::ops::RangeBounds;
+
+use fs4::fs_std::FileExt;
+use std::{
+    collections::BTreeMap,
+    fs::File,
+    io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write},
+    ops::RangeBounds,
+    path::PathBuf,
+};
 
 const LOG_HEADER_SIZE: u32 = 8;
 
@@ -11,6 +17,52 @@ pub type KeyDir = BTreeMap<Vec<u8>, (u64, u32)>;
 pub struct BitCastDiskEngine {
     key_dir: KeyDir,
     log: Log,
+}
+
+impl BitCastDiskEngine {
+    pub fn new(file_path: PathBuf) -> Result<Self> {
+        let mut log = Log::new(file_path)?;
+        // Recover key_dir from the log
+        let key_dir = log.build_key_dir()?;
+
+        Ok(Self { key_dir, log })
+    }
+
+    pub fn new_compact(file_path: PathBuf) -> Result<Self> {
+        let mut eng = Self::new(file_path)?;
+        eng.compact()?;
+
+        Ok(eng)
+    }
+
+    fn compact(&mut self) -> Result<()> {
+        // open a new tmp log file
+        let mut new_path = self.log.file_path.clone();
+        new_path.set_extension("compact");
+
+        let mut new_log = Log::new(new_path)?;
+        let new_key_dir = self
+            .key_dir
+            .iter()
+            .map(|(key, (offset, val_size))| {
+                // read the value from the old log
+                let value = self.log.read_value(*offset, *val_size)?;
+                let (new_offset, new_size) = new_log.write_entry(&key, Some(&value))?;
+                let total_offset = new_offset + new_size as u64 - *val_size as u64;
+
+                Ok((key.clone(), (total_offset, *val_size)))
+            })
+            .collect::<Result<KeyDir>>()?;
+
+        // rename the new log file to the old one
+        std::fs::rename(&new_log.file_path, &self.log.file_path)?;
+
+        new_log.file_path = self.log.file_path.clone();
+        self.key_dir = new_key_dir;
+        self.log = new_log;
+
+        Ok(())
+    }
 }
 
 impl storage::Engine for BitCastDiskEngine {
@@ -23,7 +75,7 @@ impl storage::Engine for BitCastDiskEngine {
         //100--------------|----150
         //                130
         // value size = 20
-        let value_offset = offset + size - value.len() as u64;
+        let value_offset = offset + size as u64 - value.len() as u64;
         self.key_dir.insert(key, (value_offset, value.len() as u32));
 
         Ok(())
@@ -67,32 +119,80 @@ impl DoubleEndedIterator for BitcaskDiskEngineIterator {
     }
 }
 struct Log {
+    file_path: PathBuf,
     file: std::fs::File,
 }
 
 impl Log {
+    fn new(file_path: PathBuf) -> Result<Self> {
+        // if directory not exist create it
+        if let Some(parent) = file_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(&file_path)?;
+
+        // add exclusive lock to the file, to be sure only one process can use it
+        file.try_lock_exclusive()?;
+
+        Ok(Self { file, file_path })
+    }
+
+    fn build_key_dir(&mut self) -> Result<KeyDir> {
+        let mut key_dir = KeyDir::new();
+        let mut buf_reader = BufReader::new(&self.file);
+        let file_size = self.file.metadata()?.len();
+        let mut offset = 0;
+
+        while offset < file_size {
+            let (key, value) = Self::read_entry(&mut buf_reader, offset)?;
+            let key_end = offset + LOG_HEADER_SIZE as u64 + key.len() as u64;
+
+            match value {
+                Some(v) => {
+                    key_dir.insert(key, (key_end, v.len() as u32));
+                    offset = key_end + v.len() as u64;
+                }
+                None => {
+                    key_dir.remove(&key);
+                    offset = key_end;
+                }
+            }
+        }
+
+        Ok(key_dir)
+    }
+
     /// +-------------+-------------+----------------+----------------+ \
     /// | key len(4)  | val len(4)  | key (variant)   | val (variant) | \
     /// +-------------+-------------+----------------+----------------+ \
-    fn write_entry(&mut self, key: &Vec<u8>, value: Option<&Vec<u8>>) -> Result<(u64, u64)> {
+    fn write_entry(&mut self, key: &Vec<u8>, value: Option<&Vec<u8>>) -> Result<(u64, u32)> {
         // first move the file cursor to the end of the file
         let offset = self.file.seek(SeekFrom::End(0))?;
         let key_size = key.len() as u32;
-        let value_size = value.map_or(0, |v| v.len() as u32);
-        let total_size = key_size + value_size + LOG_HEADER_SIZE;
+        let value_size = value.map_or(u32::MAX, |v| v.len() as u32);
 
-        let mut writer = BufWriter::with_capacity(total_size as usize, &self.file);
+        let payload_size = if value_size == u32::MAX {
+            0
+        } else {
+            value_size
+        };
+        let total_size = key_size + payload_size + LOG_HEADER_SIZE;
+
         // write the key size, value size, key, and value
+        let mut writer = BufWriter::with_capacity(total_size as usize, &self.file);
         writer.write_all(&key_size.to_le_bytes())?;
-        writer.write_all(&value.map_or(-1, |v| v.len() as i32).to_le_bytes())?;
+        writer.write_all(&value_size.to_le_bytes())?;
         writer.write_all(key)?;
-        if let Some(value) = value {
-            writer.write_all(value)?;
+        if let Some(v) = value {
+            writer.write_all(v)?;
         }
 
         writer.flush()?;
-
-        Ok((offset, total_size as u64))
+        Ok((offset, total_size))
     }
 
     fn read_value(&mut self, offset: u64, val_size: u32) -> Result<Vec<u8>> {
@@ -102,4 +202,43 @@ impl Log {
 
         Ok(buf)
     }
+
+    fn read_entry(
+        buf_reader: &mut BufReader<&File>,
+        offset: u64,
+    ) -> Result<(Vec<u8>, Option<Vec<u8>>)> {
+        buf_reader.seek(SeekFrom::Start(offset))?;
+        let mut len_buf = [0; 4];
+        // read key size
+        buf_reader.read_exact(&mut len_buf)?;
+        let key_size = u32::from_le_bytes(len_buf);
+
+        // read value size
+        buf_reader.read_exact(&mut len_buf)?;
+        let val_size = u32::from_le_bytes(len_buf);
+
+        // read key
+        let mut key_buf = vec![0; key_size as usize];
+        buf_reader.read_exact(&mut key_buf)?;
+
+        let value = if val_size == u32::MAX {
+            None
+        } else {
+            let mut value_buf = vec![0; val_size as usize];
+            buf_reader.read_exact(&mut value_buf)?;
+            Some(value_buf)
+        };
+
+        Ok((key_buf, value))
+    }
+}
+
+#[test]
+fn test_bitcast_disk_engine_start() -> Result<()> {
+    use std::env;
+    let mut temp_file: PathBuf = env::temp_dir();
+    temp_file.push("sqldb-log");
+    let eng = BitCastDiskEngine::new_compact(temp_file)?;
+
+    Ok(())
 }
