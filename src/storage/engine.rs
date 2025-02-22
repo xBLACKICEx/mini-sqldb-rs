@@ -38,15 +38,44 @@ pub trait EngineIterator: DoubleEndedIterator<Item = Result<(Vec<u8>, Vec<u8>)>>
 #[cfg(test)]
 mod tests {
     use super::Engine;
-    use crate::{error::Result, storage::memory::MemoryEngine};
+    use crate::error::Result;
     use std::ops::Bound;
 
     #[test]
     fn test_memory() -> Result<()> {
+        use crate::storage::memory::MemoryEngine;
+
         test_point_operations(MemoryEngine::new())?;
         test_scan_operations(MemoryEngine::new())?;
         test_scan_prefix_operations(MemoryEngine::new())?;
         test_scan_prefix_overflow(MemoryEngine::new())?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_bitcast_disk() -> Result<()> {
+        use crate::storage::bitcast_disk::BitCastDiskEngine;
+        use std::env;
+
+        let mut temp_file = env::temp_dir();
+        temp_file.push("sqldb/test_bitcast_disk.mrdb.log");
+
+        test_point_operations(BitCastDiskEngine::new(temp_file.clone())?)?;
+
+        let mut temp_file = env::temp_dir();
+        temp_file.push("sqldb/test_bitcast_disk2.mrdb.log");
+        test_scan_operations(BitCastDiskEngine::new(temp_file.clone())?)?;
+
+        let mut temp_file = env::temp_dir();
+        temp_file.push("sqldb/test_bitcast_disk3.mrdb.log");
+        test_scan_prefix_operations(BitCastDiskEngine::new(temp_file.clone())?)?;
+
+        let mut temp_file = env::temp_dir();
+        temp_file.push("sqldb/test_bitcast_disk4.mrdb.log");
+        test_scan_prefix_overflow(BitCastDiskEngine::new(temp_file.clone())?)?;
+
+        std::fs::remove_dir_all(temp_file.parent().unwrap())?;
+
         Ok(())
     }
 
