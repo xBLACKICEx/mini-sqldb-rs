@@ -31,9 +31,9 @@ This project is my attempt to build a SQL database from scratch, and so far, I�
   - ✅ SQL Execution Engine
   - ✅ In-memory storage engine
   - ✅ Basic SQL execution (`SELECT`, `CREATE TABLE`, `INSERT`)
+  - ✅ Basic Disk Storage Implementation
 
 ### 🚧 In Progress:
-- **Next Focus: Disk-Based Storage Engine**
-  - 🔜 **Disk Storage Engine Overview** (LSM Tree, B+ Tree, Bitcask)
-  - 🔜 **Basic Disk Storage Implementation**
-  - 🔜 **Storage engine startup & cleanup**
+- **Next Focus: MVCC Transactions**
+  - Transaction lifecycle: **start, write, commit, rollback**
+  - Managing concurrent transactions...
