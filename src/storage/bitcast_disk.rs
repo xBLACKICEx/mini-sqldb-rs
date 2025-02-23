@@ -83,8 +83,8 @@ impl storage::Engine for BitCastDiskEngine {
 
     fn get(&mut self, key: Vec<u8>) -> Result<Option<Vec<u8>>> {
         match self.key_dir.get(&key) {
-            Some((offset, size)) => {
-                let value = self.log.read_value(*offset, *size)?;
+            Some((val_offset, val_len)) => {
+                let value = self.log.read_value(*val_offset, *val_len)?;
                 Ok(Some(value))
             }
             None => Ok(None),
@@ -164,17 +164,17 @@ impl Log {
         let mut offset = 0;
 
         while offset < file_size {
-            let (key, value) = Self::read_entry(&mut buf_reader, offset)?;
-            let key_end = offset + LOG_HEADER_SIZE as u64 + key.len() as u64;
+            let (key, val_len) = Self::read_entry(&mut buf_reader, offset)?;
+            let val_offset = offset + LOG_HEADER_SIZE as u64 + key.len() as u64;
 
-            match value {
-                Some(v) => {
-                    key_dir.insert(key, (key_end, v.len() as u32));
-                    offset = key_end + v.len() as u64;
+            match val_len {
+                Some(val_len) => {
+                    key_dir.insert(key, (val_offset, val_len));
+                    offset = val_offset + val_len as u64;
                 }
                 None => {
                     key_dir.remove(&key);
-                    offset = key_end;
+                    offset = val_offset;
                 }
             }
         }
@@ -206,8 +206,8 @@ impl Log {
         if let Some(v) = value {
             writer.write_all(v)?;
         }
-
         writer.flush()?;
+
         Ok((offset, total_size))
     }
 
@@ -222,13 +222,13 @@ impl Log {
     fn read_entry(
         buf_reader: &mut BufReader<&File>,
         offset: u64,
-    ) -> Result<(Vec<u8>, Option<Vec<u8>>)> {
+    ) -> Result<(Vec<u8>, Option<u32>)> {
         buf_reader.seek(SeekFrom::Start(offset))?;
         let mut len_buf = [0; 4];
+
         // read key size
         buf_reader.read_exact(&mut len_buf)?;
         let key_size = u32::from_le_bytes(len_buf);
-
         // read value size
         buf_reader.read_exact(&mut len_buf)?;
         let val_size = u32::from_le_bytes(len_buf);
@@ -236,16 +236,22 @@ impl Log {
         // read key
         let mut key_buf = vec![0; key_size as usize];
         buf_reader.read_exact(&mut key_buf)?;
-
-        let value = if val_size == u32::MAX {
-            None
-        } else {
-            let mut value_buf = vec![0; val_size as usize];
-            buf_reader.read_exact(&mut value_buf)?;
-            Some(value_buf)
+        // read value
+        let value_buf = match val_size {
+            u32::MAX => None,
+            _ => {
+                let mut value_buf = vec![0; val_size as usize];
+                buf_reader.read_exact(&mut value_buf)?;
+                Some(value_buf)
+            }
         };
 
-        Ok((key_buf, value))
+        if val_size != u32::MAX {
+            buf_reader.seek(SeekFrom::Current(val_size as i64))?;
+            Ok((key_buf, Some(val_size)))
+        } else {
+            Ok((key_buf, None))
+        }
     }
 }
 
