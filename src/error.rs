@@ -7,6 +7,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     ParserError(String),
     InternalError(String),
+    WriteConflict,
 }
 
 impl From<std::num::ParseIntError> for Error {

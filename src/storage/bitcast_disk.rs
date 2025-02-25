@@ -236,15 +236,6 @@ impl Log {
         // read key
         let mut key_buf = vec![0; key_size as usize];
         buf_reader.read_exact(&mut key_buf)?;
-        // read value
-        let value_buf = match val_size {
-            u32::MAX => None,
-            _ => {
-                let mut value_buf = vec![0; val_size as usize];
-                buf_reader.read_exact(&mut value_buf)?;
-                Some(value_buf)
-            }
-        };
 
         if val_size != u32::MAX {
             buf_reader.seek(SeekFrom::Current(val_size as i64))?;

@@ -125,7 +125,7 @@ impl<E: storage::Engine> Transaction for KVTransaction<E> {
         Ok(rows)
     }
 
-    fn get_table(&self, table_name: &str) -> Result<Option<Table>> {
+    fn get_table(&mut self, table_name: &str) -> Result<Option<Table>> {
         let key = Key::Table(table_name.to_string());
         let v = self
             .txn

@@ -33,9 +33,9 @@ pub trait Transaction {
     fn scan_table(&self, table_name: String) -> Result<Vec<Row>>;
 
     // Get table info
-    fn get_table(&self, table_name: &str) -> Result<Option<Table>>;
+    fn get_table(&mut self, table_name: &str) -> Result<Option<Table>>;
 
-    fn must_get_table(&self, table_name: &str) -> Result<Table> {
+    fn must_get_table(&mut self, table_name: &str) -> Result<Table> {
         self.get_table(table_name)?
             .ok_or(Error::InternalError(format!(
                 "table {table_name} does not exist"
