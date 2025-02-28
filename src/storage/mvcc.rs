@@ -48,12 +48,12 @@ pub enum MvccKey {
     /// - Key format: {version} - {key}
     /// - Purpose: Record which transaction keys were modified by the transaction, used to clean up
     /// corresponding versions during transaction rollback.
-    TxnWrite(Version, Vec<u8>),
+    TxnWrite(Version, #[serde(with = "serde_bytes")] Vec<u8>),
 
     /// Actually stored transaction version
     /// - Key format: {key} - {version}
     /// - Purpose: Store the value of the transaction key under a specific version, achieving multi-version coexistence.
-    Version(Vec<u8>, Version),
+    Version(#[serde(with = "serde_bytes")] Vec<u8>, Version),
 }
 
 impl MvccKey {
@@ -71,7 +71,7 @@ pub enum MvccKeyPrefix {
     NextVersion,
     TxnActive,
     TxnWrite(Version),
-    Version(Vec<u8>),
+    Version(#[serde(with = "serde_bytes")] Vec<u8>),
 }
 
 impl MvccKeyPrefix {
@@ -181,7 +181,6 @@ impl<E: Engine> MvccTransaction<E> {
         engine.delete(MvccKey::TxnActive(self.state.version).encode())
     }
 
-
     pub fn set(&self, key: Vec<u8>, value: Vec<u8>) -> Result<()> {
         self.write_inner(key, Some(value))
     }
@@ -219,7 +218,6 @@ impl<E: Engine> MvccTransaction<E> {
 
         Ok(None)
     }
-
 
     pub fn scan_prefix(&self, prefix: Vec<u8>) -> Result<Vec<ScanResult>> {
         let mut eng = self.engine.lock()?;
