@@ -34,7 +34,7 @@ impl<E: Engine> Mvcc<E> {
 }
 
 /// Internal metadata key types for MVCC
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum MvccKey {
     /// Stores the next available version number (persistent counter)
     /// - Purpose: Ensure the uniqueness and increment of transaction version numbers.
