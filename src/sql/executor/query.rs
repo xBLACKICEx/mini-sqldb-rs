@@ -18,7 +18,7 @@ impl<T: Transaction> Executor<T> for Scan {
 
         Ok(ResultSet::Scan {
             columns: table.columns.iter().map(|c| c.name.clone()).collect(),
-            rows
+            rows,
         })
     }
 }

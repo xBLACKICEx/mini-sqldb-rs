@@ -1,9 +1,12 @@
-use super::engine::Engine;
+use super::{
+    engine::Engine,
+    keycode::{deserialize_key, serialize_key},
+};
 use crate::error::{Error, Result};
 
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     sync::{Arc, Mutex, MutexGuard},
 };
 
@@ -57,12 +60,12 @@ pub enum MvccKey {
 }
 
 impl MvccKey {
-    pub fn encode(&self) -> Vec<u8> {
-        bincode::serialize(self).unwrap()
+    pub fn encode(&self) -> Result<Vec<u8>> {
+        serialize_key(self)
     }
 
     pub fn decode(data: &[u8]) -> Result<Self> {
-        Ok(bincode::deserialize(data)?)
+        deserialize_key(data)
     }
 }
 
@@ -75,8 +78,8 @@ pub enum MvccKeyPrefix {
 }
 
 impl MvccKeyPrefix {
-    pub fn encode(&self) -> Vec<u8> {
-        bincode::serialize(self).unwrap()
+    pub fn encode(&self) -> Result<Vec<u8>> {
+        serialize_key(self)
     }
 }
 
@@ -106,13 +109,13 @@ impl<E: Engine> MvccTransaction<E> {
     pub fn begin(eng: Arc<Mutex<E>>) -> Result<Self> {
         let mut engine = eng.lock()?;
         // get newest version
-        let next_version = match engine.get(MvccKey::NextVersion.encode())? {
+        let next_version = match engine.get(MvccKey::NextVersion.encode()?)? {
             Some(value) => bincode::deserialize(&value)?,
             None => 0, // initial version number
         };
         // increment next version
         engine.set(
-            MvccKey::NextVersion.encode(),
+            MvccKey::NextVersion.encode()?,
             bincode::serialize(&(next_version + 1))?,
         )?;
 
@@ -120,7 +123,7 @@ impl<E: Engine> MvccTransaction<E> {
         let active_versions = Self::scan_active(&mut engine)?;
 
         // mark current transaction as active
-        engine.set(MvccKey::TxnActive(next_version).encode(), vec![])?;
+        engine.set(MvccKey::TxnActive(next_version).encode()?, vec![])?;
 
         Ok(Self {
             engine: eng.clone(),
@@ -138,7 +141,7 @@ impl<E: Engine> MvccTransaction<E> {
 
         let mut delete_keys = Vec::new();
         // Find the TxnWrite information for this current transaction
-        let mut iter = engine.scan_prefix(MvccKeyPrefix::TxnWrite(self.state.version).encode());
+        let mut iter = engine.scan_prefix(MvccKeyPrefix::TxnWrite(self.state.version).encode()?);
         while let Some((key, _)) = iter.next().transpose()? {
             delete_keys.push(key);
         }
@@ -149,7 +152,7 @@ impl<E: Engine> MvccTransaction<E> {
         }
 
         // Remove from the list of active transactions
-        engine.delete(MvccKey::TxnActive(self.state.version).encode())
+        engine.delete(MvccKey::TxnActive(self.state.version).encode()?)
     }
 
     // Rollback transaction
@@ -159,10 +162,10 @@ impl<E: Engine> MvccTransaction<E> {
         let mut delete_keys = Vec::new();
 
         // Find the TxnWrite information for this current transaction
-        let mut iter = engine.scan_prefix(MvccKeyPrefix::TxnWrite(self.state.version).encode());
+        let mut iter = engine.scan_prefix(MvccKeyPrefix::TxnWrite(self.state.version).encode()?);
         while let Some((key, _)) = iter.next().transpose()? {
             if let MvccKey::TxnWrite(_, raw_key) = MvccKey::decode(&key)? {
-                delete_keys.push(MvccKey::Version(raw_key, self.state.version).encode());
+                delete_keys.push(MvccKey::Version(raw_key, self.state.version).encode()?);
             } else {
                 return Err(Error::InternalError(format!(
                     "unexpected key: {:?}",
@@ -178,7 +181,7 @@ impl<E: Engine> MvccTransaction<E> {
         }
 
         // Remove from the list of active transactions
-        engine.delete(MvccKey::TxnActive(self.state.version).encode())
+        engine.delete(MvccKey::TxnActive(self.state.version).encode()?)
     }
 
     pub fn set(&self, key: Vec<u8>, value: Vec<u8>) -> Result<()> {
@@ -195,8 +198,8 @@ impl<E: Engine> MvccTransaction<E> {
 
         // version: 9
         // The scanned version range should be 0-8
-        let from = MvccKey::Version(key.clone(), 0).encode();
-        let to = MvccKey::Version(key.clone(), self.state.version).encode();
+        let from = MvccKey::Version(key.clone(), 0).encode()?;
+        let to = MvccKey::Version(key.clone(), self.state.version).encode()?;
         // Reverse scan to find the latest visible version
         let mut iter = engine.scan(from..=to).rev();
         // Start reading from the latest version and find the latest visible version
@@ -221,12 +224,36 @@ impl<E: Engine> MvccTransaction<E> {
 
     pub fn scan_prefix(&self, prefix: Vec<u8>) -> Result<Vec<ScanResult>> {
         let mut eng = self.engine.lock()?;
-        let mut iter = eng.scan_prefix(prefix);
-        let mut results = Vec::new();
+        let mut enc_prefix = MvccKeyPrefix::Version(prefix).encode()?;
+        // origine          encode
+        // 98 97 99    ->    98 97 99 0 0
+        // prefix origin    prefix encode
+        // 98 97       ->   98 97 0 0
+        // remove [0, 0] prefix
+        enc_prefix.truncate(enc_prefix.len() - 2);
+
+        let mut results = BTreeMap::new();
+        let mut iter = eng.scan_prefix(enc_prefix);
         while let Some((key, value)) = iter.next().transpose()? {
-            results.push(ScanResult { key, value });
+            if let MvccKey::Version(raw_key, version) = MvccKey::decode(&key)? {
+                if self.state.is_visible(version) {
+                    match bincode::deserialize(&value)? {
+                        Some(raw_value) => results.insert(raw_key, raw_value),
+                        None => results.remove(&raw_key),
+                    };
+                }
+            } else {
+                return Err(Error::InternalError(format!(
+                    "Unexpected key {:?}",
+                    String::from_utf8(key)
+                )));
+            }
         }
-        Ok(results)
+
+        Ok(results
+            .into_iter()
+            .map(|(key, value)| ScanResult { key, value })
+            .collect())
     }
 
     /// Internal write handler (conflict detection)
@@ -247,8 +274,9 @@ impl<E: Engine> MvccTransaction<E> {
                 .copied()
                 .unwrap_or(self.state.version + 1), // Exclude current transactions
         )
-        .encode();
-        let to = MvccKey::Version(key.clone(), u64::MAX).encode();
+        .encode()?;
+
+        let to = MvccKey::Version(key.clone(), u64::MAX).encode()?;
         //  Current active transaction list 3 4 5
         //  Current transaction 6
         // Only need to check the last version number
@@ -274,13 +302,13 @@ impl<E: Engine> MvccTransaction<E> {
 
         // Record which keys this version wrote, for transaction rollback
         engine.set(
-            MvccKey::TxnWrite(self.state.version, key.clone()).encode(),
+            MvccKey::TxnWrite(self.state.version, key.clone()).encode()?,
             vec![],
         )?;
 
         // Write the actual key-value data
         engine.set(
-            MvccKey::Version(key, self.state.version).encode(),
+            MvccKey::Version(key, self.state.version).encode()?,
             bincode::serialize(&value)?,
         )
     }
@@ -288,7 +316,7 @@ impl<E: Engine> MvccTransaction<E> {
     // Scan to get all active transactions listed in the engine
     fn scan_active(engine: &mut MutexGuard<E>) -> Result<HashSet<Version>> {
         let mut active_versions = HashSet::new();
-        let mut iter = engine.scan_prefix(MvccKeyPrefix::TxnActive.encode());
+        let mut iter = engine.scan_prefix(MvccKeyPrefix::TxnActive.encode()?);
 
         while let Some((key, _)) = iter.next().transpose()? {
             if let MvccKey::TxnActive(v) = MvccKey::decode(&key)? {
@@ -451,9 +479,9 @@ mod tests {
     #[test]
     fn test_scan_prefix() -> Result<()> {
         scan_prefix(MemoryEngine::new())?;
-        // let p = tempfile::tempdir()?.into_path().join("sqldb-log");
-        // scan_prefix(BitCastDiskEngine::new(p.clone())?)?;
-        // std::fs::remove_dir_all(p.parent().unwrap())?;
+        let p = tempfile::tempdir()?.into_path().join("sqldb-log");
+        scan_prefix(BitCastDiskEngine::new(p.clone())?)?;
+        std::fs::remove_dir_all(p.parent().unwrap())?;
         Ok(())
     }
 

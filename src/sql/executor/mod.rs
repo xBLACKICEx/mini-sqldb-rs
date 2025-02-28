@@ -28,7 +28,7 @@ impl<T: Transaction> dyn Executor<T> {
 
 #[derive(Debug)]
 pub enum ResultSet {
-    CrateTable {
+    CreateTable {
         table_name: String,
     },
     Insert {

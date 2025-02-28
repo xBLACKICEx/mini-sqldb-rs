@@ -48,14 +48,14 @@ impl<E: storage::Engine> KVTransaction<E> {
 
 impl<E: storage::Engine> Transaction for KVTransaction<E> {
     fn commit(&mut self) -> Result<()> {
-        Ok(())
+        self.txn.commit()
     }
 
     fn rollback(&mut self) -> Result<()> {
-        Ok(())
+        self.txn.rollback()
     }
 
-    fn crate_table(&mut self, table: Table) -> Result<()> {
+    fn create_table(&mut self, table: Table) -> Result<()> {
         // check if table exists
         if self.get_table(&table.name)?.is_some() {
             return Err(Error::InternalError(format!(
@@ -189,35 +189,45 @@ mod tests {
     fn test_bitcast_disk_engine_table_operations() -> Result<()> {
         let mut temp_file = std::env::temp_dir();
         temp_file.push("sqldb-bitcast/test_bitcast_disk_table.mrdb.log");
-        helpers::run_table_tests(BitCastDiskEngine::new(temp_file.clone())?)
+        helpers::run_table_tests(BitCastDiskEngine::new(temp_file.clone())?)?;
+        std::fs::remove_file(temp_file)?;
+        Ok(())
     }
 
     #[test]
     fn test_bitcast_disk_engine_row_operations() -> Result<()> {
         let mut temp_file = std::env::temp_dir();
         temp_file.push("sqldb-bitcast/test_bitcast_disk_row.mrdb.log");
-        helpers::run_row_tests(BitCastDiskEngine::new(temp_file.clone())?)
+        helpers::run_row_tests(BitCastDiskEngine::new(temp_file.clone())?)?;
+        std::fs::remove_file(temp_file)?;
+        Ok(())
     }
 
     #[test]
     fn test_bitcast_disk_engine_invalid_row_operations() -> Result<()> {
         let mut temp_file = std::env::temp_dir();
         temp_file.push("sqldb-bitcast/test_bitcast_disk_invalid_row.mrdb.log");
-        helpers::run_invalid_row_tests(BitCastDiskEngine::new(temp_file.clone())?)
+        helpers::run_invalid_row_tests(BitCastDiskEngine::new(temp_file.clone())?)?;
+        std::fs::remove_file(temp_file)?;
+        Ok(())
     }
 
     #[test]
     fn test_bitcast_disk_engine_sql_operations() -> Result<()> {
         let mut temp_file = std::env::temp_dir();
         temp_file.push("sqldb-bitcast/test_bitcast_disk_sql.mrdb.log");
-        helpers::run_sql_tests(BitCastDiskEngine::new(temp_file.clone())?)
+        helpers::run_sql_tests(BitCastDiskEngine::new(temp_file.clone())?)?;
+        std::fs::remove_file(temp_file)?;
+        Ok(())
     }
 
     #[test]
     fn test_bitcast_disk_engine_sql_error_cases() -> Result<()> {
         let mut temp_file = std::env::temp_dir();
         temp_file.push("sqldb-bitcast/test_bitcast_disk_sql_error.mrdb.log");
-        helpers::run_sql_error_tests(BitCastDiskEngine::new(temp_file.clone())?)
+        helpers::run_sql_error_tests(BitCastDiskEngine::new(temp_file.clone())?)?;
+        std::fs::remove_file(temp_file)?;
+        Ok(())
     }
 
     // Test helper functions module
@@ -271,20 +281,20 @@ mod tests {
             let mut txn = kv_engine.begin()?;
 
             let table = create_test_table("test_table");
-            txn.crate_table(table.clone())?;
+            txn.create_table(table.clone())?;
 
             let stored_table = txn.get_table(&table.name)?;
             assert_eq!(stored_table, Some(table.clone()));
 
             // Test duplicate table creation
-            assert!(txn.crate_table(table.clone()).is_err());
+            assert!(txn.create_table(table.clone()).is_err());
 
             // Test creating a table with empty columns
             let empty_table = Table {
                 name: "empty".to_string(),
                 columns: vec![],
             };
-            assert!(txn.crate_table(empty_table).is_err());
+            assert!(txn.create_table(empty_table).is_err());
 
             txn.commit()?;
             Ok(())
@@ -296,7 +306,7 @@ mod tests {
 
             // Create table
             let table = create_test_table("test_table");
-            txn.crate_table(table.clone())?;
+            txn.create_table(table.clone())?;
 
             // Insert test data
             let test_rows = create_test_rows();
@@ -304,14 +314,16 @@ mod tests {
                 txn.create_row(table.name.clone(), row.clone())?;
             }
 
+            txn.commit()?;
             // Verify data
             let stored_rows = txn.scan_table(table.name.clone())?;
+            println!("Stored rows: {:?}", stored_rows);
+            println!("Expected rows: {:?}", test_rows);
             assert_eq!(stored_rows.len(), test_rows.len());
             for (stored, expected) in stored_rows.iter().zip(test_rows.iter()) {
                 assert_eq!(stored, expected);
             }
 
-            txn.commit()?;
             Ok(())
         }
 
@@ -320,7 +332,7 @@ mod tests {
             let mut txn = kv_engine.begin()?;
 
             let table = create_test_table("test_table");
-            txn.crate_table(table.clone())?;
+            txn.create_table(table.clone())?;
 
             // Test inserting data with mismatched types
             let invalid_type_row = vec![
@@ -338,9 +350,10 @@ mod tests {
                 Value::String("name".to_string()),
                 Value::Integer(30),
             ];
+            txn.commit()?;
+
             assert!(txn.create_row(table.name.clone(), null_in_notnull).is_err());
 
-            txn.commit()?;
             Ok(())
         }
 
@@ -352,7 +365,7 @@ mod tests {
             let result = session
                 .execute("CREATE TABLE test_table (id INT NOT NULL, name TEXT, age INT);")?;
             match result {
-                ResultSet::CrateTable { table_name } => {
+                ResultSet::CreateTable { table_name } => {
                     assert_eq!(table_name, "test_table");
                 }
                 _ => panic!("Expected CrateTable result"),
@@ -361,12 +374,13 @@ mod tests {
             // Verify table creation
             let mut txn = session.engine.begin()?;
             let table = create_test_table("test_table");
-            assert_eq!(txn.get_table(&table.name)?, Some(table));
             txn.commit()?;
+            assert_eq!(txn.get_table(&table.name)?, Some(table));
 
             // Insert data
             let result = session
                 .execute("INSERT INTO test_table (id, name, age) VALUES (1, 'Alice', 30);")?;
+            println!("Result: {:?}", result);
             match result {
                 ResultSet::Insert { count } => {
                     assert_eq!(count, 1);
@@ -385,6 +399,7 @@ mod tests {
 
             // Query data
             let result = session.execute("SELECT * FROM test_table;")?;
+            println!("Result: {:?}", result);
             if let ResultSet::Scan { columns: _, rows } = result {
                 assert_eq!(rows.len(), 2);
                 assert_eq!(rows, create_test_rows());

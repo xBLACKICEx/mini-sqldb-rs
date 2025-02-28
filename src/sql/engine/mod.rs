@@ -26,7 +26,7 @@ pub trait Transaction {
     fn rollback(&mut self) -> Result<()>;
 
     // DDL operations
-    fn crate_table(&mut self, table: Table) -> Result<()>;
+    fn create_table(&mut self, table: Table) -> Result<()>;
 
     fn create_row(&mut self, table: String, raw: Row) -> Result<()>;
 
