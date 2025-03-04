@@ -10,7 +10,7 @@ To better understand how this database engine works, here are two architecture d
 
 ### High-Level Architecture 🌎
 This diagram gives an overview of how the SQL execution pipeline is structured.
-<img src="docs/imgs/slqdb-architecture.svg" width="50%"/>
+<img src="docs/imgs/slqdb-rs-architecture.svg" width="50%"/>
 
 <details>
   <summary>Detailed Architecture ⚙️ (Click to expand)</summary>
