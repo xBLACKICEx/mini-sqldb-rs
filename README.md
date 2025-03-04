@@ -10,12 +10,12 @@ To better understand how this database engine works, here are two architecture d
 
 ### High-Level Architecture 🌎
 This diagram gives an overview of how the SQL execution pipeline is structured.
-<img src="https://github.com/user-attachments/assets/317fb9b3-a2af-4a7e-b088-1c35670b0665" width="50%"/>
+<img src="docs/imgs/slqdb-architecture.svg" width="50%"/>
 
 <details>
   <summary>Detailed Architecture ⚙️ (Click to expand)</summary>
 
-<img src="https://github.com/user-attachments/assets/4deebde0-c2b4-47d8-9063-187e56433001"/>
+<img src="docs/imgs/sqlldb-rs-diagrm_details.svg"/>
 
 </details>
 
@@ -23,17 +23,15 @@ This diagram gives an overview of how the SQL execution pipeline is structured.
 > *Still at the beginning of the journey! 🌱
 This project is my attempt to build a SQL database from scratch, and so far, I’ve only scratched the surface. There's a lot more to come!*
 
-### ✅ Completed:
+### ✅ Implemented:
 - **Database Core**
   - ✅ Database architecture
-  - ✅ SQL Lexer & Parser
-  - ✅ Execution Planner
-  - ✅ SQL Execution Engine
-  - ✅ In-memory storage engine
   - ✅ Basic SQL execution (`SELECT`, `CREATE TABLE`, `INSERT`)
-  - ✅ Basic Disk Storage Implementation
+  - ✅ In-memory and basic disk-based storage
+  - ✅ Transactions ACID properties and MVCC 
 
-### 🚧 In Progress:
-- **Next Focus: MVCC Transactions**
-  - Transaction lifecycle: **start, write, commit, rollback**
-  - Managing concurrent transactions...
+### In Progress 🔨:
+- **Next Focus: Refinement Basic sql**
+ - 🔜 add update, delete, order by
+ - 🔜 limit, offset
+ - 🔜 projection
