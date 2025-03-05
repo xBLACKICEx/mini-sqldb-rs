@@ -4,6 +4,7 @@ use super::Transaction;
 use crate::error::{Error, Result};
 use crate::sql::schema::Table;
 use crate::sql::types::{Row, Value};
+use crate::storage::keycode::serialize_key;
 use crate::storage::mvcc;
 use crate::{sql, storage};
 
@@ -64,18 +65,12 @@ impl<E: storage::Engine> Transaction for KVTransaction<E> {
             )));
         }
 
-        // Validate the table
-        if table.columns.is_empty() {
-            return Err(Error::InternalError(format!(
-                "Table {} has no columns",
-                table.name
-            )));
-        }
+        table.is_validate()?;
 
         // create table
-        let key = Key::Table(table.name.clone());
+        let key = Key::Table(table.name.clone()).encode()?;
         let value = bincode::serialize(&table)?;
-        self.txn.set(bincode::serialize(&key)?, value)?;
+        self.txn.set(key, value)?;
 
         Ok(())
     }
@@ -104,17 +99,25 @@ impl<E: storage::Engine> Transaction for KVTransaction<E> {
         }
 
         // Store data
-        // TODO Temporarily use the first column as the primary key, a unique identifier for a row of data.
-        let id = Key::Row(table_name.clone(), row[0].clone());
+        let primary_key = table.get_primary_key(&row)?;
+        let id = Key::Row(table_name.clone(), primary_key.clone()).encode()?;
+
+        if self.txn.get(id.clone())?.is_some() {
+            return Err(Error::InternalError(format!(
+                "Duplicated data for primary key {} already exists in table {}",
+                primary_key, table_name
+            )));
+        }
+
         let value = bincode::serialize(&row)?;
-        self.txn.set(bincode::serialize(&id)?, value)?;
+        self.txn.set(id, value)?;
 
         Ok(())
     }
 
     fn scan_table(&self, table_name: String) -> Result<Vec<Row>> {
-        let prefix = KeyPrefix::Row(table_name.clone());
-        let results = self.txn.scan_prefix(bincode::serialize(&prefix)?)?;
+        let prefix = KeyPrefix::Row(table_name.clone()).encode()?;
+        let results = self.txn.scan_prefix(prefix)?;
 
         let mut rows = vec![];
         for result in results {
@@ -126,10 +129,10 @@ impl<E: storage::Engine> Transaction for KVTransaction<E> {
     }
 
     fn get_table(&mut self, table_name: &str) -> Result<Option<Table>> {
-        let key = Key::Table(table_name.to_string());
+        let key = Key::Table(table_name.to_string()).encode()?;
         let v = self
             .txn
-            .get(bincode::serialize(&key)?)?
+            .get(key)?
             .map(|v| bincode::deserialize(&v))
             .transpose()?;
 
@@ -145,11 +148,24 @@ enum Key {
     Row(String, Value),
 }
 
+impl Key {
+    fn encode(&self) -> Result<Vec<u8>> {
+        serialize_key(self)
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 enum KeyPrefix {
     Table,
     Row(String),
 }
+
+impl KeyPrefix {
+    fn encode(&self) -> Result<Vec<u8>> {
+        serialize_key(self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,6 +199,11 @@ mod tests {
     #[test]
     fn test_memory_engine_sql_error_cases() -> Result<()> {
         helpers::run_sql_error_tests(MemoryEngine::new())
+    }
+
+    #[test]
+    fn test_memory_engine_primary_key_constraints() -> Result<()> {
+        helpers::run_primary_key_tests(MemoryEngine::new())
     }
 
     #[test]
@@ -230,6 +251,15 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_bitcast_disk_engine_primary_key_constraints() -> Result<()> {
+        let mut temp_file = std::env::temp_dir();
+        temp_file.push("sqldb-bitcast/test_bitcast_disk_primary_key.mrdb.log");
+        helpers::run_primary_key_tests(BitCastDiskEngine::new(temp_file.clone())?)?;
+        std::fs::remove_file(temp_file)?;
+        Ok(())
+    }
+
     // Test helper functions module
     mod helpers {
         use super::*;
@@ -244,18 +274,21 @@ mod tests {
                         datatype: DataType::Integer,
                         nullable: false,
                         default: None,
+                        primary_key: true,
                     },
                     Column {
                         name: "name".to_string(),
                         datatype: DataType::String,
                         nullable: true,
                         default: Some(Value::Null),
+                        primary_key: false,
                     },
                     Column {
                         name: "age".to_string(),
                         datatype: DataType::Integer,
                         nullable: true,
                         default: Some(Value::Null),
+                        primary_key: false,
                     },
                 ],
             }
@@ -362,8 +395,9 @@ mod tests {
             let session = kv_engine.session()?;
 
             // Use SQL to create a table
-            let result = session
-                .execute("CREATE TABLE test_table (id INT NOT NULL, name TEXT, age INT);")?;
+            let result = session.execute(
+                "CREATE TABLE test_table (id INT PRIMARY KEY NOT NULL, name TEXT, age INT);",
+            )?;
             match result {
                 ResultSet::CreateTable { table_name } => {
                     assert_eq!(table_name, "test_table");
@@ -415,7 +449,9 @@ mod tests {
             let session = kv_engine.session()?;
 
             // Create table
-            session.execute("CREATE TABLE test_table (id INT NOT NULL, name TEXT, age INT);")?;
+            session.execute(
+                "CREATE TABLE test_table (id INT PRIMARY KEY NOT NULL, name TEXT, age INT);",
+            )?;
 
             // Duplicate table creation should fail
             assert!(session
@@ -433,6 +469,125 @@ mod tests {
             assert!(session
                 .execute("INSERT INTO nonexistent (id) VALUES (1);")
                 .is_err());
+            Ok(())
+        }
+        pub fn run_primary_key_tests<E: storage::Engine>(engine: E) -> Result<()> {
+            let kv_engine = KVEngine::new(engine);
+            let mut txn = kv_engine.begin()?;
+
+            // Create test table
+            let table = create_test_table("test_pk_table");
+            txn.create_table(table.clone())?;
+
+            // Insert first row with primary key 1
+            let row1 = vec![
+                Value::Integer(1),
+                Value::String("Alice".to_string()),
+                Value::Integer(30),
+            ];
+            txn.create_row(table.name.clone(), row1)?;
+
+            // Try inserting another row with the same primary key
+            let row1_duplicate = vec![
+                Value::Integer(1), // Same primary key as row1
+                Value::String("Different Name".to_string()),
+                Value::Integer(40),
+            ];
+
+            // This should fail with a proper error message about duplicate primary key
+            let result = txn.create_row(table.name.clone(), row1_duplicate);
+            assert!(result.is_err());
+            if let Err(Error::InternalError(msg)) = result {
+                assert!(msg.contains("Duplicated data for primary key"));
+                assert!(msg.contains("already exists in table"));
+            } else {
+                panic!("Expected InternalError for duplicate primary key");
+            }
+
+            // Test with SQL execution
+            txn.commit()?;
+
+            let session = kv_engine.session()?;
+
+            // Create a new test table using SQL
+            session
+                .execute("CREATE TABLE sql_pk_test (id INT PRIMARY KEY NOT NULL, name TEXT);")?;
+
+            // Insert first row
+            session.execute("INSERT INTO sql_pk_test VALUES (10, 'First');")?;
+
+            // Try inserting duplicate primary key
+            let result = session.execute("INSERT INTO sql_pk_test VALUES (10, 'Second');");
+            assert!(result.is_err());
+            if let Err(Error::InternalError(msg)) = result {
+                assert!(msg.contains("Duplicated data for primary key"));
+            } else {
+                panic!("Expected InternalError for duplicate primary key in SQL execution");
+            }
+
+            // Test table without primary key
+            let invalid_table = Table {
+                name: "no_pk_table".to_string(),
+                columns: vec![
+                    Column {
+                        name: "id".to_string(),
+                        datatype: DataType::Integer,
+                        nullable: false,
+                        default: None,
+                        primary_key: false, // No primary key!
+                    },
+                    Column {
+                        name: "name".to_string(),
+                        datatype: DataType::String,
+                        nullable: true,
+                        default: Some(Value::Null),
+                        primary_key: false,
+                    },
+                ],
+            };
+
+            let result = txn.create_table(invalid_table);
+            assert!(result.is_err());
+            if let Err(Error::InternalError(msg)) = result {
+                assert!(msg.contains("has no primary key"));
+            } else {
+                panic!("Expected InternalError for table without primary key");
+            }
+
+            // Test table with multiple primary keys
+            let multi_pk_table = Table {
+                name: "multi_pk_table".to_string(),
+                columns: vec![
+                    Column {
+                        name: "id".to_string(),
+                        datatype: DataType::Integer,
+                        nullable: false,
+                        default: None,
+                        primary_key: true, // First primary key
+                    },
+                    Column {
+                        name: "name".to_string(),
+                        datatype: DataType::String,
+                        nullable: true,
+                        default: Some(Value::Null),
+                        primary_key: true, // Second primary key
+                    },
+                ],
+            };
+
+            let result = txn.create_table(multi_pk_table);
+            assert!(result.is_err());
+            if let Err(Error::InternalError(msg)) = result {
+                assert!(msg.contains("more than one primary key"));
+            } else {
+                panic!("Expected InternalError for table with multiple primary keys");
+            }
+
+            // Verify through SQL as well
+            let result = session
+                .execute("CREATE TABLE bad_pk_table (id INT PRIMARY KEY, name TEXT PRIMARY KEY);");
+            assert!(result.is_err());
+
             Ok(())
         }
     }

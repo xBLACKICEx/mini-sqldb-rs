@@ -1,5 +1,6 @@
 use crate::sql::parser::ast::Expression;
 use serde::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter};
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub enum DataType {
@@ -16,6 +17,20 @@ pub enum Value {
     Integer(i64),
     Float(f64),
     String(String),
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Null => write!(f, "NULL"),
+            Self::Boolean(b) => {
+                if *b { write!(f, "TRUE") } else { write!(f, "FALSE") }
+            }
+            Self::Integer(i) => write!(f, "{}", i),
+            Self::Float(fl) => write!(f, "{}", fl),
+            Self::String(s) => write!(f, "'{}'", s),
+        }
+    }
 }
 
 impl Value {

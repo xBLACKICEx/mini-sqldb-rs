@@ -3,6 +3,8 @@ use serde::de;
 use serde::ser;
 use std::array::TryFromSliceError;
 use std::fmt::Display;
+use std::str::Utf8Error;
+use std::string::FromUtf8Error;
 use std::sync::PoisonError;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -12,6 +14,18 @@ pub enum Error {
     ParserError(String),
     InternalError(String),
     WriteConflict,
+}
+
+impl From<FromUtf8Error> for Error {
+    fn from(value: FromUtf8Error) -> Self {
+        Error::InternalError(value.to_string())
+    }
+}
+
+impl From<Utf8Error> for Error {
+    fn from(value: Utf8Error) -> Self {
+        Error::InternalError(value.to_string())
+    }
 }
 
 impl std::error::Error for Error {}

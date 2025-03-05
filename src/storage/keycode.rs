@@ -49,8 +49,9 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         unimplemented!("do not support i32")
     }
 
-    fn serialize_i64(self, _v: i64) -> Result<Self::Ok> {
-        unimplemented!("do not support i64")
+    fn serialize_i64(self, v: i64) -> Result<Self::Ok> {
+        self.output.extend(v.to_be_bytes());
+        Ok(())
     }
 
     fn serialize_u8(self, _v: u8) -> Result<()> {
@@ -82,10 +83,11 @@ impl<'a> ser::Serializer for &'a mut Serializer {
         unimplemented!()
     }
 
-    fn serialize_str(self, _v: &str) -> Result<()> {
-        unimplemented!()
-    }
+    fn serialize_str(self, v: &str) -> Result<()> {
+        self.output.extend(v.as_bytes());
 
+        Ok(())
+    }
 
     /// Serializes a byte slice.
     ///
@@ -332,7 +334,9 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        unimplemented!()
+        let bytes = self.take_bytes(size_of::<i64>());
+
+        visitor.visit_i64(i64::from_be_bytes(bytes.try_into()?))
     }
 
     fn deserialize_u8<V>(self, visitor: V) -> Result<V::Value>
@@ -390,14 +394,16 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        unimplemented!()
+        let bytes = self.next_bytes()?;
+        visitor.visit_str(std::str::from_utf8(&bytes)?)
     }
 
     fn deserialize_string<V>(self, visitor: V) -> Result<V::Value>
     where
         V: Visitor<'de>,
     {
-        unimplemented!()
+        let bytes = self.next_bytes()?;
+        visitor.visit_string(String::from_utf8(bytes)?)
     }
 
     fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value>

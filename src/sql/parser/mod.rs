@@ -95,6 +95,7 @@ impl<'a> Parser<'a> {
                 | Token::Keyword(Keyword::Text)
                 | Token::Keyword(Keyword::Varchar) => DataType::String,
                 Token::Keyword(Keyword::Float) | Token::Keyword(Keyword::Double) => DataType::Float,
+
                 Token::Keyword(Keyword::Boolean) | Token::Keyword(Keyword::Bool) => {
                     DataType::Boolean
                 }
@@ -105,6 +106,7 @@ impl<'a> Parser<'a> {
                 }
             },
             nullable: None,
+            primary_key: false,
             default: None,
         };
 
@@ -117,6 +119,10 @@ impl<'a> Parser<'a> {
                     column.nullable = Some(false);
                 }
                 Keyword::Default => column.default = Some(self.parse_expression()?),
+                Keyword::Primary => {
+                    self.next_expect(Token::Keyword(Keyword::Key))?;
+                    column.primary_key = true;
+                }
                 keyword => {
                     return Err(Error::ParserError(format!(
                         "[Parser] Unexpected keyword {keyword}"
@@ -206,7 +212,7 @@ impl<'a> Parser<'a> {
         }
         Ok(values)
     }
-    
+
     fn parse_insert_columns(&mut self) -> Result<Vec<String>> {
         let mut columns = vec![];
         loop {

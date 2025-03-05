@@ -52,6 +52,7 @@ mod tests {
     fn test_plan_create_table() -> Result<()> {
         let sql = "
     CREATE TABLE tbl1 (
+        id INT PRIMARY KEY,
         a INT DEFAULT 100,
         b FLOAT NOT NULL,
         c VARCHAR,
@@ -67,28 +68,39 @@ mod tests {
                     name: "tbl1".to_string(),
                     columns: vec![
                         Column {
+                            name: "id".to_string(),
+                            datatype: DataType::Integer,
+                            nullable: true, // If NOT NULL is not specified, it defaults to allowing null
+                            default: Some(Value::Null),
+                            primary_key: true,
+                        },
+                        Column {
                             name: "a".to_string(),
                             datatype: DataType::Integer,
                             nullable: true, // If NOT NULL is not specified, it defaults to allowing null
                             default: Some(Value::Integer(100)),
+                            primary_key: false,
                         },
                         Column {
                             name: "b".to_string(),
                             datatype: DataType::Float,
                             nullable: false,
                             default: None,
+                            primary_key: false,
                         },
                         Column {
                             name: "c".to_string(),
                             datatype: DataType::String,
                             nullable: true,
                             default: Some(Value::Null),
+                            primary_key: false,
                         },
                         Column {
                             name: "d".to_string(),
                             datatype: DataType::Boolean,
                             nullable: true,
                             default: Some(Value::Boolean(true)),
+                            primary_key: false,
                         },
                     ]
                 }
