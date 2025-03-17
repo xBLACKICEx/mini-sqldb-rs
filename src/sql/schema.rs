@@ -42,6 +42,16 @@ impl Table {
 
         Ok(&row[col])
     }
+
+    pub fn get_col_index(&self, col_name: &str) -> Result<usize> {
+        self.columns
+            .iter()
+            .position(|c| c.name == col_name)
+            .ok_or(Error::InternalError(format!(
+                "column {} not found",
+                col_name
+            )))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

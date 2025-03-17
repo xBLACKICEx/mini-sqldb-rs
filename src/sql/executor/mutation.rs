@@ -6,7 +6,7 @@ use crate::{
     error::Result,
     sql::{engine::Transaction, parser::ast::Expression},
 };
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 pub struct Insert {
     table_name: String,
@@ -89,15 +89,18 @@ impl<T: Transaction> Executor<T> for Insert {
         let mut count = 0;
         // First, retrieve the table information
         let table = txn.must_get_table(&self.table_name)?;
-        for expr in self.values {
+        for express in self.values {
             // Convert the expression into a value
-            let row = expr.into_iter().map(|e| Value::from(e)).collect::<Vec<_>>();
+            let row_values = express
+                .into_iter()
+                .map(|e| Value::from(&e))
+                .collect::<Vec<_>>();
             // If the inserted column is not specified
             let insert_row = if self.columns.is_empty() {
-                pad_row(&table, &row)?
+                pad_row(&table, &row_values)?
             } else {
                 // If the inserted column is specified, the value information needs to be organized
-                make_row(&table, &self.columns, &row)?
+                make_row(&table, &self.columns, &row_values)?
             };
 
             // Insert data
@@ -107,5 +110,53 @@ impl<T: Transaction> Executor<T> for Insert {
         }
 
         Ok(ResultSet::Insert { count })
+    }
+}
+
+pub struct Update<T> {
+    table_name: String,
+    source: Box<dyn Executor<T>>,
+    columns: BTreeMap<String, Expression>,
+}
+
+impl<T: Transaction> Update<T> {
+    pub fn new(
+        table_name: String,
+        columns: BTreeMap<String, Expression>,
+        source: Box<dyn Executor<T>>,
+    ) -> Box<Self> {
+        Box::new(Self {
+            table_name,
+            columns,
+            source,
+        })
+    }
+}
+
+impl<T: Transaction> Executor<T> for Update<T> {
+    fn execute(self: Box<Self>, txn: &mut T) -> Result<ResultSet> {
+        let mut count = 0;
+        match self.source.execute(txn)? {
+            ResultSet::Scan { columns, rows } => {
+                let table = txn.must_get_table(&self.table_name)?;
+                let pk = table.get_primary_key(&rows[0])?;
+
+                for row in rows.iter() {
+                    let mut new_row = row.clone();
+
+                    for (i, column) in columns.iter().enumerate() {
+                        if let Some(expr) = self.columns.get(column) {
+                            new_row[i] = Value::from(expr);
+                        }
+                    }
+
+                    txn.update_row(&table, pk, new_row)?;
+                    count += 1;
+                }
+            }
+            _ => return Err(Error::InternalError("Unexpected result set".into())),
+        }
+
+        Ok(ResultSet::Update { count })
     }
 }

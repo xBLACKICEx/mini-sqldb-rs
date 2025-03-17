@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use super::{
     engine::Transaction,
     executor::{Executor, ResultSet},
@@ -25,6 +26,13 @@ pub enum Node {
     // Scan Node
     Scan {
         table_name: String,
+        filter: Option<(String, Expression)>,
+    },
+
+    Update {
+        table_name: String,
+        columns: BTreeMap<String, Expression>,
+        source: Box<Node>,
     },
 }
 
@@ -37,7 +45,7 @@ impl Plan {
         Planner::new().build(stmt)
     }
 
-    pub fn execute<T: Transaction>(self, txn: &mut T) -> Result<ResultSet> {
+    pub fn execute<T: Transaction + 'static>(self, txn: &mut T) -> Result<ResultSet> {
         <dyn Executor<T>>::build(self.0).execute(txn)
     }
 }
@@ -166,6 +174,7 @@ mod tests {
             plan,
             Plan(Node::Scan {
                 table_name: "tbl1".to_string(),
+                filter: None,
             })
         );
         Ok(())

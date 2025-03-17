@@ -45,15 +45,15 @@ impl Value {
     }
 }
 
-impl From<Expression> for Value {
-    fn from(expr: Expression) -> Self {
+impl From<&Expression> for Value {
+    fn from(expr: &Expression) -> Self {
         match expr {
             Expression::Consts(consts) => match consts {
                 crate::sql::parser::ast::Consts::Null => Value::Null,
-                crate::sql::parser::ast::Consts::Boolean(b) => Value::Boolean(b),
-                crate::sql::parser::ast::Consts::Integer(i) => Value::Integer(i),
-                crate::sql::parser::ast::Consts::String(s) => Value::String(s),
-                crate::sql::parser::ast::Consts::Float(f) => Value::Float(f),
+                crate::sql::parser::ast::Consts::Boolean(b) => Value::Boolean(*b),
+                crate::sql::parser::ast::Consts::Integer(i) => Value::Integer(*i),
+                crate::sql::parser::ast::Consts::String(s) => Value::String(s.clone()),
+                crate::sql::parser::ast::Consts::Float(f) => Value::Float(*f),
             },
         }
     }

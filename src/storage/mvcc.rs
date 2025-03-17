@@ -225,7 +225,7 @@ impl<E: Engine> MvccTransaction<E> {
     pub fn scan_prefix(&self, prefix: Vec<u8>) -> Result<Vec<ScanResult>> {
         let mut eng = self.engine.lock()?;
         let mut enc_prefix = MvccKeyPrefix::Version(prefix).encode()?;
-        // origine          encode
+        // origin            encode
         // 98 97 99    ->    98 97 99 0 0
         // prefix origin    prefix encode
         // 98 97       ->   98 97 0 0

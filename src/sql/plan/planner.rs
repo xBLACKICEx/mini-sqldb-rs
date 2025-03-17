@@ -24,7 +24,7 @@ impl Planner {
                         .map(|c| {
                             let nullable = c.nullable.unwrap_or(true);
                             let default = match c.default {
-                                Some(express) => Some(Value::from(express)),
+                                Some(express) => Some(Value::from(&express)),
                                 None if nullable => Some(Value::Null),
                                 None => None,
                             };
@@ -49,7 +49,22 @@ impl Planner {
                 values,
                 columns: columns.unwrap_or_default(),
             },
-            ast::Statement::Select { table_name } => Node::Scan { table_name },
+            ast::Statement::Select { table_name } => Node::Scan {
+                table_name,
+                filter: None,
+            },
+            ast::Statement::Update {
+                table_name,
+                columns,
+                where_clause,
+            } => Node::Update {
+                table_name: table_name.clone(),
+                columns,
+                source: Box::new(Node::Scan {
+                    table_name,
+                    filter: where_clause,
+                }),
+            },
         }
     }
 }

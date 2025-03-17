@@ -1,5 +1,7 @@
-use super::{executor::ResultSet, parser::Parser, plan::Plan, schema::Table, types::Row};
+use std::iter::Filter;
+use super::{executor::ResultSet, parser::Parser, plan::Plan, schema::Table, types::{Row, Value}};
 use crate::error::{Error, Result};
+use crate::sql::parser::ast::Expression;
 
 mod kv;
 
@@ -30,7 +32,9 @@ pub trait Transaction {
 
     fn create_row(&mut self, table: String, raw: Row) -> Result<()>;
 
-    fn scan_table(&self, table_name: String) -> Result<Vec<Row>>;
+    fn scan_table(&mut self, table_name: String, filter: Option<(String, Expression)>) -> Result<Vec<Row>>;
+
+    fn update_row(&mut self, table: &Table, id: &Value, row: Row) -> Result<()>;
 
     // Get table info
     fn get_table(&mut self, table_name: &str) -> Result<Option<Table>>;
@@ -48,7 +52,7 @@ pub struct Session<E: Engine> {
     engine: E,
 }
 
-impl<E: Engine> Session<E> {
+impl<E: Engine + 'static> Session<E> {
     /// Execute client SQL statements
     pub fn execute(&self, sql: &str) -> Result<ResultSet> {
         let stmt = Parser::new(sql).parse()?;

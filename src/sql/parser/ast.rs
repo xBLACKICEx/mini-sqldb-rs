@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::sql::types::DataType;
 
 #[derive(Debug, PartialEq)]
@@ -14,6 +16,12 @@ pub enum Statement {
     Select {
         table_name: String,
     },
+
+    Update {
+        table_name: String,
+        columns: BTreeMap<String, Expression>,
+        where_clause: Option<(String, Expression)>,
+    },
 }
 
 #[derive(Debug, PartialEq)]
@@ -25,7 +33,7 @@ pub struct Column {
     pub primary_key: bool,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Expression {
     Consts(Consts),
 }
@@ -36,7 +44,7 @@ impl From<Consts> for Expression {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Consts {
     Null,
     Integer(i64),

@@ -1,7 +1,9 @@
 use super::types::DataType;
 use crate::error::{Error, Result};
+use crate::sql::parser::ast::Expression;
 use ast::Column;
 use lexer::{Keyword, Lexer, Token};
+use std::collections::BTreeMap;
 use std::iter::Peekable;
 
 pub(super) mod ast;
@@ -38,6 +40,7 @@ impl<'a> Parser<'a> {
             Some(Token::Keyword(Keyword::Create)) => self.parse_ddl(),
             Some(Token::Keyword(Keyword::Select)) => self.parse_select(),
             Some(Token::Keyword(Keyword::Insert)) => self.parse_insert(),
+            Some(Token::Keyword(Keyword::Update)) => self.parse_update(),
             Some(_) => Err(Error::ParserError("[Parser] Unexpected token".to_string())),
             None => Err(Error::ParserError(
                 "[Parser] Unexpected end of input".to_string(),
@@ -192,9 +195,9 @@ impl<'a> Parser<'a> {
         let mut values = vec![];
         loop {
             self.next_expect(Token::OpenParen)?;
-            let mut exprs = vec![];
+            let mut express = vec![];
             loop {
-                exprs.push(self.parse_expression()?);
+                express.push(self.parse_expression()?);
                 match self.next()? {
                     Token::CloseParen => break,
                     Token::Comma => continue,
@@ -205,7 +208,7 @@ impl<'a> Parser<'a> {
                     }
                 }
             }
-            values.push(exprs);
+            values.push(express);
             if self.next_if_token(Token::Comma).is_none() {
                 break;
             }
@@ -228,6 +231,44 @@ impl<'a> Parser<'a> {
             }
         }
         Ok(columns)
+    }
+
+    fn parse_update(&mut self) -> std::result::Result<ast::Statement, Error> {
+        self.next_expect(Token::Keyword(Keyword::Update))?;
+        let table_name = self.next_ident()?;
+        self.next_expect(Token::Keyword(Keyword::Set))?;
+        let mut columns = BTreeMap::new();
+        loop {
+            let column = self.next_ident()?;
+            self.next_expect(Token::Equal)?;
+            let expr = self.parse_expression()?;
+            if columns.contains_key(&column) {
+                return Err(Error::ParserError(format!(
+                    "[Parser] Duplicate column name {column}"
+                )));
+            }
+            columns.insert(column, expr);
+            if self.next_if_token(Token::Comma).is_none() {
+                break;
+            }
+        }
+
+        Ok(ast::Statement::Update {
+            table_name,
+            columns,
+            where_clause: self.parse_where_clause()?,
+        })
+    }
+
+    fn parse_where_clause(&mut self) -> Result<Option<(String, Expression)>> {
+        if self.next_if_token(Token::Keyword(Keyword::Where)).is_some() {
+            let column = self.next_ident()?;
+            self.next_expect(Token::Equal)?;
+            let value = self.parse_expression()?;
+            Ok(Some((column, value)))
+        } else {
+            Ok(None)
+        }
     }
 
     fn peek(&mut self) -> Result<Option<Token>> {
@@ -409,4 +450,68 @@ mod tests {
         let res = parser.parse();
         assert!(res.is_err(), "Expected error for unexpected token");
     }
+
+    #[test]
+    fn test_update() {
+        let sql = "UPDATE my_table SET name = 'Alice', age = 30 WHERE id = 1;";
+        let mut parser = Parser::new(sql);
+        let stmt = parser.parse().expect("Failed to parse UPDATE");
+        match stmt {
+            ast::Statement::Update {
+                table_name,
+                columns,
+                where_clause,
+            } => {
+                assert_eq!(table_name, "my_table");
+                assert_eq!(columns.len(), 2);
+                assert_eq!(
+                    columns["name"],
+                    ast::Expression::Consts(ast::Consts::String("Alice".to_string()))
+                );
+                assert_eq!(
+                    columns["age"],
+                    ast::Expression::Consts(ast::Consts::Integer(30))
+                );
+                let where_clause = where_clause.expect("Expected WHERE clause");
+                assert_eq!(where_clause.0, "id");
+                assert_eq!(
+                    where_clause.1,
+                    ast::Expression::Consts(ast::Consts::Integer(1))
+                );
+            }
+            _ => panic!("Statement should be Update"),
+        }
+    }
+}
+
+#[test]
+fn test_update_failure_scenarios() {
+    // Test duplicate column in SET clause
+    let sql = "UPDATE my_table SET name = 'Alice', name = 'Bob' WHERE id = 1;";
+    let mut parser = Parser::new(sql);
+    let result = parser.parse();
+    assert!(result.is_err(), "Should fail on duplicate column name");
+    if let Err(Error::ParserError(msg)) = result {
+        assert!(msg.contains("Duplicate column name"));
+    } else {
+        panic!("Expected ParserError with duplicate column message");
+    }
+
+    // Test invalid syntax (missing SET keyword)
+    let sql = "UPDATE my_table name = 'Alice' WHERE id = 1;";
+    let mut parser = Parser::new(sql);
+    let result = parser.parse();
+    assert!(result.is_err(), "Should fail when SET keyword is missing");
+
+    // Test invalid expression in SET clause
+    let sql = "UPDATE my_table SET name = WHERE id = 1;";
+    let mut parser = Parser::new(sql);
+    let result = parser.parse();
+    assert!(result.is_err(), "Should fail with invalid expression");
+
+    // Test invalid WHERE clause
+    let sql = "UPDATE my_table SET name = 'Alice' WHERE;";
+    let mut parser = Parser::new(sql);
+    let result = parser.parse();
+    assert!(result.is_err(), "Should fail with incomplete WHERE clause");
 }

@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::Transaction;
 use crate::error::{Error, Result};
+use crate::sql::parser::ast::Expression;
 use crate::sql::schema::Table;
 use crate::sql::types::{Row, Value};
 use crate::storage::keycode::serialize_key;
@@ -100,9 +101,9 @@ impl<E: storage::Engine> Transaction for KVTransaction<E> {
 
         // Store data
         let primary_key = table.get_primary_key(&row)?;
-        let id = Key::Row(table_name.clone(), primary_key.clone()).encode()?;
+        let key = Key::Row(table_name.clone(), primary_key.clone()).encode()?;
 
-        if self.txn.get(id.clone())?.is_some() {
+        if self.txn.get(key.clone())?.is_some() {
             return Err(Error::InternalError(format!(
                 "Duplicated data for primary key {} already exists in table {}",
                 primary_key, table_name
@@ -110,19 +111,33 @@ impl<E: storage::Engine> Transaction for KVTransaction<E> {
         }
 
         let value = bincode::serialize(&row)?;
-        self.txn.set(id, value)?;
-
+        //    K        V
+        //  TN:PK      Row
+        self.txn.set(key, value)?;
         Ok(())
     }
 
-    fn scan_table(&self, table_name: String) -> Result<Vec<Row>> {
+    fn scan_table(
+        &mut self,
+        table_name: String,
+        filter: Option<(String, Expression)>,
+    ) -> Result<Vec<Row>> {
+        // TODO: Should be optimized.
         let prefix = KeyPrefix::Row(table_name.clone()).encode()?;
+        let table = self.must_get_table(&table_name)?;
         let results = self.txn.scan_prefix(prefix)?;
 
         let mut rows = vec![];
         for result in results {
-            let row = bincode::deserialize(&result.value)?;
-            rows.push(row);
+            let row: Row = bincode::deserialize(&result.value)?;
+            if let Some((col, expr)) = &filter {
+                let col_index = table.get_col_index(&col)?;
+                if Value::from(expr) == row[col_index] {
+                    rows.push(row);
+                }
+            } else {
+                rows.push(row);
+            }
         }
 
         Ok(rows)
@@ -137,6 +152,21 @@ impl<E: storage::Engine> Transaction for KVTransaction<E> {
             .transpose()?;
 
         Ok(v)
+    }
+
+    fn update_row(&mut self, table: &Table, id: &Value, row: Row) -> Result<()> {
+        let new_pk = table.get_primary_key(&row)?;
+
+        if id != new_pk {
+            let key = Key::Row(table.name.clone(), id.clone()).encode()?;
+            self.txn.delete(key)?;
+        }
+
+        let key = Key::Row(table.name.clone(), new_pk.clone()).encode()?;
+        let value = bincode::serialize(&row)?;
+        self.txn.set(key, value)?;
+
+        Ok(())
     }
 }
 
@@ -260,6 +290,34 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_update() -> Result<()> {
+        let kvengine = KVEngine::new(MemoryEngine::new());
+        let mut s = kvengine.session()?;
+
+        s.execute(
+            "create table t1 (a int primary key, b text default 'vv', c integer default 100);",
+        )?;
+        s.execute("insert into t1 values(1, 'a', 1);")?;
+        s.execute("insert into t1 values(2, 'b', 2);")?;
+        s.execute("insert into t1 values(3, 'c', 3);")?;
+
+        let v = s.execute("update t1 set b = 'aa' where a = 1;")?;
+        let v = s.execute("update t1 set a = 33 where a = 3;")?;
+        println!("{:?}", v);
+
+        match s.execute("select * from t1;")? {
+            crate::sql::executor::ResultSet::Scan { columns, rows } => {
+                for row in rows {
+                    println!("{:?}", row);
+                }
+            }
+            _ => unreachable!(),
+        }
+
+        Ok(())
+    }
+
     // Test helper functions module
     mod helpers {
         use super::*;
@@ -349,7 +407,7 @@ mod tests {
 
             txn.commit()?;
             // Verify data
-            let stored_rows = txn.scan_table(table.name.clone())?;
+            let stored_rows = txn.scan_table(table.name.clone(), None)?;
             println!("Stored rows: {:?}", stored_rows);
             println!("Expected rows: {:?}", test_rows);
             assert_eq!(stored_rows.len(), test_rows.len());
@@ -390,7 +448,7 @@ mod tests {
             Ok(())
         }
 
-        pub fn run_sql_tests<E: storage::Engine>(engine: E) -> Result<()> {
+        pub fn run_sql_tests<E: storage::Engine + 'static>(engine: E) -> Result<()> {
             let kv_engine = KVEngine::new(engine);
             let session = kv_engine.session()?;
 
@@ -444,7 +502,7 @@ mod tests {
             Ok(())
         }
 
-        pub fn run_sql_error_tests<E: storage::Engine>(engine: E) -> Result<()> {
+        pub fn run_sql_error_tests<E: storage::Engine + 'static>(engine: E) -> Result<()> {
             let kv_engine = KVEngine::new(engine);
             let session = kv_engine.session()?;
 
@@ -471,7 +529,7 @@ mod tests {
                 .is_err());
             Ok(())
         }
-        pub fn run_primary_key_tests<E: storage::Engine>(engine: E) -> Result<()> {
+        pub fn run_primary_key_tests<E: storage::Engine + 'static>(engine: E) -> Result<()> {
             let kv_engine = KVEngine::new(engine);
             let mut txn = kv_engine.begin()?;
 
