@@ -2,6 +2,8 @@ use crate::error::{Error, Result};
 use std::fmt::Display;
 use std::iter::Peekable;
 use std::str::Chars;
+use std::str::FromStr;
+use strum_macros;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
@@ -52,10 +54,12 @@ impl Display for Token {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, strum_macros::EnumString, strum_macros::Display)]
+#[strum(ascii_case_insensitive, serialize_all = "UPPERCASE")]
 pub enum Keyword {
     Create,
     Table,
+
     Int,
     Integer,
     Boolean,
@@ -65,89 +69,23 @@ pub enum Keyword {
     Varchar,
     Float,
     Double,
-    Select,
-    From,
-    Insert,
-    Into,
-    Values,
+    Primary,
+
     True,
     False,
+    Key,
     Default,
     Not,
     Null,
-    Primary,
-    Key,
+
+    Insert,
+    Into,
+    Values,
     Update,
-    Where,
     Set,
-}
-
-impl Keyword {
-    fn from_str(ident: &str) -> Option<Self> {
-        match ident.to_uppercase().as_str() {
-            "CREATE" => Some(Keyword::Create),
-            "TABLE" => Some(Keyword::Table),
-            "INT" => Some(Keyword::Int),
-            "INTEGER" => Some(Keyword::Integer),
-            "BOOLEAN" => Some(Keyword::Boolean),
-            "BOOL" => Some(Keyword::Bool),
-            "STRING" => Some(Keyword::String),
-            "TEXT" => Some(Keyword::Text),
-            "VARCHAR" => Some(Keyword::Varchar),
-            "FLOAT" => Some(Keyword::Float),
-            "DOUBLE" => Some(Keyword::Double),
-            "SELECT" => Some(Keyword::Select),
-            "FROM" => Some(Keyword::From),
-            "INSERT" => Some(Keyword::Insert),
-            "INTO" => Some(Keyword::Into),
-            "VALUES" => Some(Keyword::Values),
-            "TRUE" => Some(Keyword::True),
-            "FALSE" => Some(Keyword::False),
-            "DEFAULT" => Some(Keyword::Default),
-            "NOT" => Some(Keyword::Not),
-            "NULL" => Some(Keyword::Null),
-            "PRIMARY" => Some(Keyword::Primary),
-            "KEY" => Some(Keyword::Key),
-            "UPDATE" => Some(Keyword::Update),
-            "WHERE" => Some(Keyword::Where),
-            "SET" => Some(Keyword::Set),
-            _ => None,
-        }
-    }
-}
-
-impl std::fmt::Display for Keyword {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let keyword = match self {
-            Keyword::Create => "CREATE",
-            Keyword::Table => "TABLE",
-            Keyword::Int => "INT",
-            Keyword::Integer => "INTEGER",
-            Keyword::Boolean => "BOOLEAN",
-            Keyword::Bool => "BOOL",
-            Keyword::String => "STRING",
-            Keyword::Text => "TEXT",
-            Keyword::Varchar => "VARCHAR",
-            Keyword::Float => "FLOAT",
-            Keyword::Double => "DOUBLE",
-            Keyword::Select => "SELECT",
-            Keyword::From => "FROM",
-            Keyword::Insert => "INSERT",
-            Keyword::Into => "INTO",
-            Keyword::Values => "VALUES",
-            Keyword::True => "TRUE",
-            Keyword::False => "FALSE",
-            Keyword::Default => "DEFAULT",
-            Keyword::Not => "NOT",
-            Keyword::Null => "NULL",
-            Keyword::Primary => "PRIMARY",
-            Keyword::Key => "KEY",
-            Keyword::Update => "UPDATE",
-            Keyword::Where => "WHERE",
-            Keyword::Set => "SET",
-        };
-        write!(f, "{}", keyword)
-    }
+    Select,
+    From,
+    Where,
 }
 
 /// Lexical Analyzer Lexer Definition

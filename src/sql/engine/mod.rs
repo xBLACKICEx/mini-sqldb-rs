@@ -1,4 +1,3 @@
-use std::iter::Filter;
 use super::{executor::ResultSet, parser::Parser, plan::Plan, schema::Table, types::{Row, Value}};
 use crate::error::{Error, Result};
 use crate::sql::parser::ast::Expression;

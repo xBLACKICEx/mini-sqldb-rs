@@ -293,7 +293,7 @@ mod tests {
     #[test]
     fn test_update() -> Result<()> {
         let kvengine = KVEngine::new(MemoryEngine::new());
-        let mut s = kvengine.session()?;
+        let s = kvengine.session()?;
 
         s.execute(
             "create table t1 (a int primary key, b text default 'vv', c integer default 100);",
@@ -302,12 +302,11 @@ mod tests {
         s.execute("insert into t1 values(2, 'b', 2);")?;
         s.execute("insert into t1 values(3, 'c', 3);")?;
 
-        let v = s.execute("update t1 set b = 'aa' where a = 1;")?;
         let v = s.execute("update t1 set a = 33 where a = 3;")?;
         println!("{:?}", v);
 
         match s.execute("select * from t1;")? {
-            crate::sql::executor::ResultSet::Scan { columns, rows } => {
+            crate::sql::executor::ResultSet::Scan { columns: _, rows } => {
                 for row in rows {
                     println!("{:?}", row);
                 }
