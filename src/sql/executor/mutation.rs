@@ -139,9 +139,16 @@ impl<T: Transaction> Executor<T> for Update<T> {
         match self.source.execute(txn)? {
             ResultSet::Scan { columns, rows } => {
                 let table = txn.must_get_table(&self.table_name)?;
-                let pk = table.get_primary_key(&rows[0])?;
+                
+                // Check if rows is empty
+                if rows.is_empty() {
+                    // No rows to update, return empty result
+                    return Ok(ResultSet::Update { count: 0 });
+                }
 
                 for row in rows.iter() {
+                    // Get primary key for each row
+                    let pk = table.get_primary_key(row)?;
                     let mut new_row = row.clone();
 
                     for (i, column) in columns.iter().enumerate() {
@@ -158,5 +165,44 @@ impl<T: Transaction> Executor<T> for Update<T> {
         }
 
         Ok(ResultSet::Update { count })
+    }
+}
+
+pub struct Delete<T> {
+    table_name: String,
+    source: Box<dyn Executor<T>>,
+}
+
+impl<T: Transaction> Delete<T> {
+    pub fn new(table_name: String, source: Box<dyn Executor<T>>) -> Box<Self> {
+        Box::new(Self { table_name, source })
+    }
+}
+impl<T: Transaction> Executor<T> for Delete<T> {
+    fn execute(self: Box<Self>, txn: &mut T) -> Result<ResultSet> {
+        let mut count = 0;
+
+        match self.source.execute(txn)? {
+            ResultSet::Scan { columns: _, rows } => {
+                let table = txn.must_get_table(&self.table_name)?;
+                
+                // Check if rows is empty
+                if rows.is_empty() {
+                    // No rows to delete, return empty result
+                    return Ok(ResultSet::Delete { count: 0 });
+                }
+
+                for row in rows.iter() {
+                    // Get primary key for each row
+                    let pk = table.get_primary_key(row)?;
+                    txn.delete_row(&table, pk.clone())?;
+                    count += 1;
+                }
+            }
+
+            _ => return Err(Error::InternalError("Unexpected result set".into())),
+        }
+
+        Ok(ResultSet::Delete { count })
     }
 }

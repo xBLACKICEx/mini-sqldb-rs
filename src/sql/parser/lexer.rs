@@ -83,6 +83,7 @@ pub enum Keyword {
     Values,
     Update,
     Set,
+    Delete,
     Select,
     From,
     Where,

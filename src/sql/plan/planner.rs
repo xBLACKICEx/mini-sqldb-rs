@@ -49,9 +49,9 @@ impl Planner {
                 values,
                 columns: columns.unwrap_or_default(),
             },
-            ast::Statement::Select { table_name } => Node::Scan {
+            ast::Statement::Select { table_name, where_clause } => Node::Scan {
                 table_name,
-                filter: None,
+                filter: where_clause,
             },
             ast::Statement::Update {
                 table_name,
@@ -60,6 +60,16 @@ impl Planner {
             } => Node::Update {
                 table_name: table_name.clone(),
                 columns,
+                source: Box::new(Node::Scan {
+                    table_name,
+                    filter: where_clause,
+                }),
+            },
+            ast::Statement::Delete {
+                table_name,
+                where_clause,
+            } => Node::Delete {
+                table_name: table_name.clone(),
                 source: Box::new(Node::Scan {
                     table_name,
                     filter: where_clause,

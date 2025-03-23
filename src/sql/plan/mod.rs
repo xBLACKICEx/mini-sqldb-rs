@@ -1,10 +1,10 @@
-use std::collections::BTreeMap;
 use super::{
     engine::Transaction,
     executor::{Executor, ResultSet},
 };
 use crate::error::Result;
 use crate::sql::{parser::ast, parser::ast::Expression, plan::planner::Planner, schema::Table};
+use std::collections::BTreeMap;
 
 mod planner;
 
@@ -32,6 +32,11 @@ pub enum Node {
     Update {
         table_name: String,
         columns: BTreeMap<String, Expression>,
+        source: Box<Node>,
+    },
+
+    Delete {
+        table_name: String,
         source: Box<Node>,
     },
 }

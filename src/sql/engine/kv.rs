@@ -168,6 +168,14 @@ impl<E: storage::Engine> Transaction for KVTransaction<E> {
 
         Ok(())
     }
+
+    fn delete_row(&mut self, table: &Table, id: Value) -> Result<()> {
+        let key = Key::Row(table.name.clone(), id.clone()).encode()?;
+
+        self.txn.delete(key)?;
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -235,6 +243,16 @@ mod tests {
     fn test_memory_engine_primary_key_constraints() -> Result<()> {
         helpers::run_primary_key_tests(MemoryEngine::new())
     }
+    #[test]
+
+    fn test_memory_engine_update_operations() -> Result<()> {
+        helpers::run_update_tests(MemoryEngine::new())
+    }
+
+    #[test]
+    fn test_memory_engine_delete_operations() -> Result<()> {
+        helpers::run_delete_tests(MemoryEngine::new())
+    }
 
     #[test]
     fn test_bitcast_disk_engine_table_operations() -> Result<()> {
@@ -291,29 +309,20 @@ mod tests {
     }
 
     #[test]
-    fn test_update() -> Result<()> {
-        let kvengine = KVEngine::new(MemoryEngine::new());
-        let s = kvengine.session()?;
+    fn test_bitcast_disk_engine_update_operations() -> Result<()> {
+        let mut temp_file = std::env::temp_dir();
+        temp_file.push("sqldb-bitcast/test_bitcast_disk_update.mrdb.log");
+        helpers::run_update_tests(BitCastDiskEngine::new(temp_file.clone())?)?;
+        std::fs::remove_file(temp_file)?;
+        Ok(())
+    }
 
-        s.execute(
-            "create table t1 (a int primary key, b text default 'vv', c integer default 100);",
-        )?;
-        s.execute("insert into t1 values(1, 'a', 1);")?;
-        s.execute("insert into t1 values(2, 'b', 2);")?;
-        s.execute("insert into t1 values(3, 'c', 3);")?;
-
-        let v = s.execute("update t1 set a = 33 where a = 3;")?;
-        println!("{:?}", v);
-
-        match s.execute("select * from t1;")? {
-            crate::sql::executor::ResultSet::Scan { columns: _, rows } => {
-                for row in rows {
-                    println!("{:?}", row);
-                }
-            }
-            _ => unreachable!(),
-        }
-
+    #[test]
+    fn test_bitcast_disk_engine_delete_operations() -> Result<()> {
+        let mut temp_file = std::env::temp_dir();
+        temp_file.push("sqldb-bitcast/test_bitcast_disk_delete.mrdb.log");
+        helpers::run_delete_tests(BitCastDiskEngine::new(temp_file.clone())?)?;
+        std::fs::remove_file(temp_file)?;
         Ok(())
     }
 
@@ -644,6 +653,236 @@ mod tests {
             let result = session
                 .execute("CREATE TABLE bad_pk_table (id INT PRIMARY KEY, name TEXT PRIMARY KEY);");
             assert!(result.is_err());
+
+            Ok(())
+        }
+
+        pub fn run_update_tests<E: storage::Engine + 'static>(engine: E) -> Result<()> {
+            let kv_engine = KVEngine::new(engine);
+            let session = kv_engine.session()?;
+
+            // Create test table
+            session.execute(
+                "create table t1 (a int primary key, b text default 'vv', c integer default 100);",
+            )?;
+
+            // Insert some test data
+            session.execute("insert into t1 values(1, 'a', 1);")?;
+            session.execute("insert into t1 values(2, 'b', 2);")?;
+            session.execute("insert into t1 values(3, 'c', 3);")?;
+
+            // Test updating a primary key
+            let result = session.execute("update t1 set a = 33 where a = 3;")?;
+            match result {
+                ResultSet::Update { count } => {
+                    assert_eq!(count, 1, "Update should affect 1 row");
+                }
+                _ => panic!("Expected Update result"),
+            }
+
+            // Verify update with a query
+            let result = session.execute("select * from t1 where a = 33;")?;
+            match result {
+                ResultSet::Scan { columns: _, rows } => {
+                    assert_eq!(rows.len(), 1, "Should have one row with a = 33");
+                    let expected_row = vec![
+                        Value::Integer(33),
+                        Value::String("c".to_string()),
+                        Value::Integer(3),
+                    ];
+                    assert_eq!(rows[0], expected_row);
+                }
+                _ => panic!("Expected Scan result"),
+            }
+
+            // Test updating multiple fields
+            let result = session.execute("update t1 set b = 'updated', c = 999 where a = 2;")?;
+            match result {
+                ResultSet::Update { count } => {
+                    assert_eq!(count, 1, "Update should affect 1 row");
+                }
+                _ => panic!("Expected Update result"),
+            }
+
+            // Verify multi-field update
+            let result = session.execute("select * from t1 where a = 2;")?;
+            match result {
+                ResultSet::Scan { columns: _, rows } => {
+                    assert_eq!(rows.len(), 1, "Should have one row with a = 2");
+                    let expected_row = vec![
+                        Value::Integer(2),
+                        Value::String("updated".to_string()),
+                        Value::Integer(999),
+                    ];
+                    assert_eq!(rows[0], expected_row);
+                }
+                _ => panic!("Expected Scan result"),
+            }
+
+            // Test updating with an invalid condition (no rows affected)
+            let result = session.execute("update t1 set b = 'nobody' where a = 999;")?;
+            match result {
+                ResultSet::Update { count } => {
+                    assert_eq!(
+                        count, 0,
+                        "Update with non-matching condition should affect 0 rows"
+                    );
+                }
+                _ => panic!("Expected Update result"),
+            }
+
+            // Verify all rows after updates
+            let result = session.execute("select * from t1;")?;
+            match result {
+                ResultSet::Scan { columns: _, rows } => {
+                    assert_eq!(rows.len(), 3, "Should still have 3 rows in total");
+
+                    // The expected rows after all updates
+                    let mut expected_rows = vec![
+                        vec![
+                            Value::Integer(1),
+                            Value::String("a".to_string()),
+                            Value::Integer(1),
+                        ],
+                        vec![
+                            Value::Integer(2),
+                            Value::String("updated".to_string()),
+                            Value::Integer(999),
+                        ],
+                        vec![
+                            Value::Integer(33),
+                            Value::String("c".to_string()),
+                            Value::Integer(3),
+                        ],
+                    ];
+
+                    expected_rows.sort_by(|a, b| {
+                        let a_val = &a[0];
+                        let b_val = &b[0];
+
+                        if let (Value::Integer(a_int), Value::Integer(b_int)) = (a_val, b_val) {
+                            a_int.cmp(b_int)
+                        } else {
+                            panic!("Expected integer values for sorting");
+                        }
+                    });
+
+                    // Verify each row
+                    for (i, row) in rows.iter().enumerate() {
+                        assert_eq!(row, &expected_rows[i]);
+                    }
+                }
+                _ => panic!("Expected Scan result"),
+            }
+
+            Ok(())
+        }
+
+        pub fn run_delete_tests<E: storage::Engine + 'static>(engine: E) -> Result<()> {
+            let kv_engine = KVEngine::new(engine);
+            let session = kv_engine.session()?;
+
+            // Create test table
+            session.execute(
+                "create table employees (id int primary key, name text, salary integer);",
+            )?;
+
+            // Insert test data
+            session.execute("insert into employees values(1, 'Alice', 5000);")?;
+            session.execute("insert into employees values(2, 'Bob', 6000);")?;
+            session.execute("insert into employees values(3, 'Charlie', 4500);")?;
+            session.execute("insert into employees values(4, 'Dave', 7000);")?;
+            session.execute("insert into employees values(5, 'Eve', 8000);")?;
+
+            // Verify initial row count
+            let result = session.execute("select * from employees;")?;
+            match result {
+                ResultSet::Scan { columns: _, rows } => {
+                    assert_eq!(rows.len(), 5, "Should have 5 rows initially");
+                }
+                _ => panic!("Expected Scan result"),
+            }
+
+            // Test deleting a single row by primary key
+            let result = session.execute("delete from employees where id = 3;")?;
+            match result {
+                ResultSet::Delete { count } => {
+                    assert_eq!(count, 1, "Delete should affect 1 row");
+                }
+                _ => panic!("Expected Delete result"),
+            }
+
+            // Verify row was deleted
+            let result = session.execute("select * from employees where id = 3;")?;
+            match result {
+                ResultSet::Scan { columns: _, rows } => {
+                    assert_eq!(rows.len(), 0, "Row with id = 3 should be deleted");
+                }
+                _ => panic!("Expected Scan result"),
+            }
+
+            // TODO: Uncomment the following tests when the sql support complex conditions
+
+            // Test deleting with a non-primary key condition
+            // let result = session.execute("delete from employees where salary > 6500;")?;
+            // match result {
+            //     ResultSet::Delete { count } => {
+            //         assert_eq!(count, 2, "Delete should affect 2 rows (Dave and Eve)");
+            //     }
+            //     _ => panic!("Expected Delete result"),
+            // }
+            //
+            // // Verify total remaining rows
+            // let result = session.execute("select * from employees;")?;
+            // match result {
+            //     ResultSet::Scan { columns: _, rows } => {
+            //         assert_eq!(rows.len(), 2, "Should have 2 rows remaining");
+            //
+            //         // The expected remaining rows should be Alice and Bob
+            //         let expected_ids = vec![1, 2];
+            //         for row in rows {
+            //             if let Value::Integer(id) = row[0] {
+            //                 assert!(
+            //                     expected_ids.contains(&id),
+            //                     "Unexpected row with id {id} found"
+            //                 );
+            //             } else {
+            //                 panic!("Expected integer id");
+            //             }
+            //         }
+            //     }
+            //     _ => panic!("Expected Scan result"),
+            // }
+
+            // // Test deleting with a condition that matches no rows
+            // let result = session.execute("delete from employees where id > 100;")?;
+            // match result {
+            //     ResultSet::Delete { count } => {
+            //         assert_eq!(
+            //             count, 0,
+            //             "Delete with non-matching condition should affect 0 rows"
+            //         );
+            //     }
+            //     _ => panic!("Expected Delete result"),
+            // }
+
+            // Test deleting all remaining rows
+            let result = session.execute("delete from employees;")?;
+            match result {
+                ResultSet::Delete { count } => {
+                    assert_eq!(count, 4, "Delete all should affect 4 rows");
+                }
+                _ => panic!("Expected Delete result"),
+            }
+
+            // Verify table is empty
+            let result = session.execute("select * from employees;")?;
+            match result {
+                ResultSet::Scan { columns: _, rows } => {
+                    assert_eq!(rows.len(), 0, "Table should be empty after delete all");
+                }
+                _ => panic!("Expected Scan result"),
+            }
 
             Ok(())
         }

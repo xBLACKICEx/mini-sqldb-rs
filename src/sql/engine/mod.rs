@@ -29,11 +29,13 @@ pub trait Transaction {
     // DDL operations
     fn create_table(&mut self, table: Table) -> Result<()>;
 
-    fn create_row(&mut self, table: String, raw: Row) -> Result<()>;
+    fn create_row(&mut self, table: String, row: Row) -> Result<()>;
 
     fn scan_table(&mut self, table_name: String, filter: Option<(String, Expression)>) -> Result<Vec<Row>>;
 
     fn update_row(&mut self, table: &Table, id: &Value, row: Row) -> Result<()>;
+
+    fn delete_row(&mut self, table: &Table, id: Value) -> Result<()>;
 
     // Get table info
     fn get_table(&mut self, table_name: &str) -> Result<Option<Table>>;
