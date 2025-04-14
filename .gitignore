@@ -12,3 +12,6 @@ target/
 # IDEs
 .idea/
 .vscode/
+
+# nix shell
+.direnv
