@@ -1,50 +1,48 @@
 {
-  description = "Example Rust development environment for Zero to Nix";
+  description = "Rust devShell with Fenix stable toolchain";
 
-  # Flake inputs
-  inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    rust-overlay.url = "github:oxalica/rust-overlay"; # A helper for Rust + Nix
+  nixConfig = {
+    extra-substituters = [ "https://nix-community.cachix.org" ];
+    extra-trusted-public-keys = [
+      "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs"
+    ];
   };
 
-  # Flake outputs
-  outputs = { self, nixpkgs, rust-overlay }:
-    let
-      # Overlays enable you to customize the Nixpkgs attribute set
-      overlays = [
-        # Makes a `rust-bin` attribute available in Nixpkgs
-        (import rust-overlay)
-        # Provides a `rustToolchain` attribute for Nixpkgs that we can use to
-        # create a Rust environment
-        (self: super: {
-          rustToolchain = super.rust-bin.stable.latest.default;
-        })
-      ];
+  inputs = {
+    nixpkgs.url = "nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
+    rustowl-flake.url = "github:nix-community/rustowl-flake";
 
-      # Systems supported
-      allSystems = [
-        "x86_64-linux" # 64-bit Intel/AMD Linux
-        "aarch64-linux" # 64-bit ARM Linux
-        "x86_64-darwin" # 64-bit Intel macOS
-        "aarch64-darwin" # 64-bit ARM macOS
-      ];
-
-      # Helper to provide system-specific attributes
-      forAllSystems = f: nixpkgs.lib.genAttrs allSystems (system: f {
-        pkgs = import nixpkgs { inherit overlays system; };
-      });
-    in
-    {
-      # Development environment output
-      devShells = forAllSystems ({ pkgs }: {
-        default = pkgs.mkShell {
-          # The Nix packages provided in the environment
-          packages = (with pkgs; [
-            # The package provided by our custom overlay. Includes cargo, Clippy, cargo-fmt,
-            # rustdoc, rustfmt, and other tools.
-            rustToolchain
-          ]) ++ pkgs.lib.optionals pkgs.stdenv.isDarwin (with pkgs; [ libiconv ]);
-        };
-      });
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
+  };
+
+  outputs =
+    inputs@{
+      self,
+      nixpkgs,
+      flake-utils,
+      fenix,
+      rustowl-flake,
+      ...
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
+      let
+        pkgs = nixpkgs.legacyPackages.${system};
+        rustToolChain = fenix.packages.${system}.stable.toolchain;
+      in
+      {
+        formatter = pkgs.nixfmt-rfc-style;
+
+        devShells.default =
+          with pkgs;
+          mkShell {
+            buildInputs = [ rustowl-flake.packages.${system}.rustowl ];
+            packages = [ rustToolChain ];
+          };
+      }
+    );
 }
