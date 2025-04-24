@@ -37,12 +37,10 @@
       {
         formatter = pkgs.nixfmt-rfc-style;
 
-        devShells.default =
-          with pkgs;
-          mkShell {
+        devShells.default = with pkgs; mkShell {
             buildInputs = [ rustowl-flake.packages.${system}.rustowl ];
             packages = [ rustToolChain ];
-          };
+        };
       }
     );
 }

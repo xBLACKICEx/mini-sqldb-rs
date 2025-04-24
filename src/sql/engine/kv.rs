@@ -70,7 +70,7 @@ impl<E: storage::Engine> Transaction for KVTransaction<E> {
 
         // create table
         let key = Key::Table(table.name.clone()).encode()?;
-        let value = bincode::serialize(&table)?;
+        let value = bincode::serde::encode_to_vec(&table, bincode::config::legacy())?;
         self.txn.set(key, value)?;
 
         Ok(())
@@ -110,7 +110,7 @@ impl<E: storage::Engine> Transaction for KVTransaction<E> {
             )));
         }
 
-        let value = bincode::serialize(&row)?;
+        let value = bincode::serde::encode_to_vec(&row, bincode::config::legacy())?;
         //    K        V
         //  TN:PK      Row
         self.txn.set(key, value)?;
@@ -129,7 +129,8 @@ impl<E: storage::Engine> Transaction for KVTransaction<E> {
 
         let mut rows = vec![];
         for result in results {
-            let row: Row = bincode::deserialize(&result.value)?;
+            let row: Row =
+                bincode::serde::decode_from_slice(&result.value, bincode::config::legacy())?.0;
             if let Some((col, expr)) = &filter {
                 let col_index = table.get_col_index(&col)?;
                 if Value::from(expr) == row[col_index] {
@@ -148,10 +149,10 @@ impl<E: storage::Engine> Transaction for KVTransaction<E> {
         let v = self
             .txn
             .get(key)?
-            .map(|v| bincode::deserialize(&v))
+            .map(|v| bincode::serde::decode_from_slice(&v, bincode::config::legacy()))
             .transpose()?;
 
-        Ok(v)
+        Ok(v.map(|(table, _)| table))
     }
 
     fn update_row(&mut self, table: &Table, id: &Value, row: Row) -> Result<()> {
@@ -163,7 +164,7 @@ impl<E: storage::Engine> Transaction for KVTransaction<E> {
         }
 
         let key = Key::Row(table.name.clone(), new_pk.clone()).encode()?;
-        let value = bincode::serialize(&row)?;
+        let value = bincode::serde::encode_to_vec(&row, bincode::config::legacy())?;
         self.txn.set(key, value)?;
 
         Ok(())

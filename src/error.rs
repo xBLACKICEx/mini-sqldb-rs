@@ -1,4 +1,4 @@
-use bincode::ErrorKind;
+use bincode::error::{EncodeError, DecodeError};
 use serde::de;
 use serde::ser;
 use std::array::TryFromSliceError;
@@ -60,8 +60,14 @@ impl From<TryFromSliceError> for Error {
     }
 }
 
-impl From<Box<ErrorKind>> for Error {
-    fn from(err: Box<ErrorKind>) -> Self {
+impl From<EncodeError> for Error {
+    fn from(err: EncodeError) -> Self {
+        Error::InternalError(err.to_string())
+    }
+}
+
+impl From<DecodeError> for Error {
+    fn from(err: DecodeError) -> Self {
         Error::InternalError(err.to_string())
     }
 }

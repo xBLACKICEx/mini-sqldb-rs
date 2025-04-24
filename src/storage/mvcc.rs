@@ -110,13 +110,13 @@ impl<E: Engine> MvccTransaction<E> {
         let mut engine = eng.lock()?;
         // get newest version
         let next_version = match engine.get(MvccKey::NextVersion.encode()?)? {
-            Some(value) => bincode::deserialize(&value)?,
+            Some(value) => bincode::serde::decode_from_slice(&value, bincode::config::legacy())?.0,
             None => 0, // initial version number
         };
         // increment next version
         engine.set(
             MvccKey::NextVersion.encode()?,
-            bincode::serialize(&(next_version + 1))?,
+            bincode::serde::encode_to_vec(&(next_version + 1), bincode::config::legacy())?,
         )?;
 
         // get current active transactions
@@ -207,7 +207,11 @@ impl<E: Engine> MvccTransaction<E> {
             match MvccKey::decode(&key)? {
                 MvccKey::Version(_, version) => {
                     if self.state.is_visible(version) {
-                        return Ok(bincode::deserialize(&value)?);
+                        return Ok(bincode::serde::decode_from_slice(
+                            &value,
+                            bincode::config::legacy(),
+                        )?
+                        .0);
                     }
                 }
                 _ => {
@@ -237,7 +241,7 @@ impl<E: Engine> MvccTransaction<E> {
         while let Some((key, value)) = iter.next().transpose()? {
             if let MvccKey::Version(raw_key, version) = MvccKey::decode(&key)? {
                 if self.state.is_visible(version) {
-                    match bincode::deserialize(&value)? {
+                    match bincode::serde::decode_from_slice(&value, bincode::config::legacy())?.0 {
                         Some(raw_value) => results.insert(raw_key, raw_value),
                         None => results.remove(&raw_key),
                     };
@@ -309,7 +313,7 @@ impl<E: Engine> MvccTransaction<E> {
         // Write the actual key-value data
         engine.set(
             MvccKey::Version(key, self.state.version).encode()?,
-            bincode::serialize(&value)?,
+            bincode::serde::encode_to_vec(&value, bincode::config::legacy())?,
         )
     }
 
