@@ -255,6 +255,21 @@ mod tests {
         helpers::run_delete_tests(MemoryEngine::new())
     }
 
+
+    #[test]
+    fn test_memory_engine_nullable_primary_key() -> Result<()> {
+        let engine = MemoryEngine::new();
+        let res = helpers::run_nullable_pk_tests(engine);
+        res
+    }
+
+    #[test]
+    fn test_memory_engine_default_value_type_mismatch() -> Result<()> {
+        let engine = MemoryEngine::new();
+        let res = helpers::run_default_value_mismatch_tests(engine);
+        res
+    }
+
     #[test]
     fn test_bitcast_disk_engine_table_operations() -> Result<()> {
         let mut temp_file = std::env::temp_dir();
@@ -327,10 +342,118 @@ mod tests {
         Ok(())
     }
 
+
+    #[test]
+    fn test_bitcast_disk_engine_nullable_primary_key() -> Result<()> {
+        let mut temp_file = std::env::temp_dir();
+        temp_file.push("sqldb-bitcast/test_bitcast_disk_nullable_pk.mrdb.log");
+        let engine = BitCastDiskEngine::new(temp_file.clone())?;
+        let res = helpers::run_nullable_pk_tests(engine);
+        std::fs::remove_file(temp_file)?;
+        res
+    }
+
+    #[test]
+    fn test_bitcast_disk_engine_default_value_type_mismatch() -> Result<()> {
+        let mut temp_file = std::env::temp_dir();
+        temp_file.push("sqldb-bitcast/test_bitcast_disk_default_mismatch.mrdb.log");
+        let engine = BitCastDiskEngine::new(temp_file.clone())?;
+        let res = helpers::run_default_value_mismatch_tests(engine);
+        std:: fs::remove_file(temp_file)?;
+        res
+    }
+
     // Test helper functions module
     mod helpers {
         use super::*;
         use crate::sql::executor::ResultSet;
+
+        /// Test: defining a nullable primary key column should be rejected
+        pub fn run_nullable_pk_tests<E: storage::Engine>(engine: E) -> Result<()> {
+            let kv_engine = KVEngine::new(engine);
+            let mut txn = kv_engine.begin()?;
+
+            // Define a table where the primary key column is nullable
+            let table = Table {
+                name: "null_pk_table".to_string(),
+                columns: vec![
+                    Column {
+                        name: "id".to_string(),
+                        datatype: DataType::Integer,
+                        nullable: true, // primary key marked nullable
+                        default: None,
+                        primary_key: true,
+                    },
+                    Column {
+                        name: "name".to_string(),
+                        datatype: DataType::String,
+                        nullable: false,
+                        default: None,
+                        primary_key: false,
+                    },
+                ],
+            };
+            // Creating this table should fail because primary keys cannot be nullable
+            let result = txn.create_table(table.clone());
+            assert!(result.is_err());
+            if let Err(Error::InternalError(msg)) = result {
+                assert!(
+                    msg.contains("has no primary key") || msg.contains("nullable"),
+                    "Expected error due to nullable primary key, got: {}",
+                    msg
+                );
+            } else {
+                panic!("Expected failure when defining a nullable primary key");
+            }
+
+            Ok(())
+        }
+
+        pub fn run_default_value_mismatch_tests<E: storage::Engine>(engine: E) -> Result<()> {
+            let kv_engine = KVEngine::new(engine);
+            let mut txn = kv_engine.begin()?;
+
+            // Define a table with a Boolean column that has a default value
+            let table = Table {
+                name: "default_mismatch".to_string(),
+                columns: vec![
+                    Column {
+                        name: "id".to_string(),
+                        datatype: DataType::Integer,
+                        nullable: false,
+                        default: None,
+                        primary_key: true,
+                    },
+                    Column {
+                        name: "flag".to_string(),
+                        datatype: DataType::Boolean,
+                        nullable: false,
+                        default: Some(Value::Boolean(true)),
+                        primary_key: false,
+                    },
+                ],
+            };
+            txn.create_table(table.clone())?;
+
+            // Attempt to insert a String into the Boolean column
+            let bad_row = vec![
+                Value::Integer(1),
+                Value::String("not_bool".to_string()), // wrong type
+            ];
+            let result = txn.create_row(table.name.clone(), bad_row);
+            assert!(result.is_err());
+            if let Err(Error::InternalError(msg)) = result {
+                assert!(
+                    msg.contains("expects type Boolean") && msg.contains("got String"),
+                    "Expected type mismatch error for Boolean column, got: {}",
+                    msg
+                );
+            } else {
+                panic!("Expected failure when inserting a value that conflicts with column default type");
+            }
+
+            Ok(())
+        }
 
         pub fn create_test_table(name: &str) -> Table {
             Table {

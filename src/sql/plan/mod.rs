@@ -83,8 +83,8 @@ mod tests {
                         Column {
                             name: "id".to_string(),
                             datatype: DataType::Integer,
-                            nullable: true, // If NOT NULL is not specified, it defaults to allowing null
-                            default: Some(Value::Null),
+                            nullable: false,
+                            default: None,
                             primary_key: true,
                         },
                         Column {

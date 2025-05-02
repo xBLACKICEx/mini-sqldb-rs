@@ -22,7 +22,7 @@ impl Planner {
                     columns: columns
                         .into_iter()
                         .map(|c| {
-                            let nullable = c.nullable.unwrap_or(true);
+                            let nullable = c.nullable.unwrap_or(!c.primary_key);
                             let default = match c.default {
                                 Some(express) => Some(Value::from(&express)),
                                 None if nullable => Some(Value::Null),
