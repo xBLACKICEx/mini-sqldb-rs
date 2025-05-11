@@ -49,10 +49,25 @@ impl Planner {
                 values,
                 columns: columns.unwrap_or_default(),
             },
-            ast::Statement::Select { table_name, where_clause } => Node::Scan {
+            ast::Statement::Select {
                 table_name,
-                filter: where_clause,
-            },
+                where_clause,
+                order_by,
+            } => {
+                let mut node = Node::Scan {
+                    table_name,
+                    filter: where_clause,
+                };
+
+                if !order_by.is_empty() {
+                    node = Node::Order {
+                        order_by,
+                        source: Box::new(node),
+                    }
+                }
+
+                node
+            }
             ast::Statement::Update {
                 table_name,
                 columns,

@@ -255,7 +255,6 @@ mod tests {
         helpers::run_delete_tests(MemoryEngine::new())
     }
 
-
     #[test]
     fn test_memory_engine_nullable_primary_key() -> Result<()> {
         let engine = MemoryEngine::new();
@@ -269,6 +268,12 @@ mod tests {
         let res = helpers::run_default_value_mismatch_tests(engine);
         res
     }
+
+    #[test]
+    fn test_memory_engine_order_by() -> Result<()> {
+        helpers::run_order_by_tests(MemoryEngine::new())
+    }
+
 
     #[test]
     fn test_bitcast_disk_engine_table_operations() -> Result<()> {
@@ -342,7 +347,6 @@ mod tests {
         Ok(())
     }
 
-
     #[test]
     fn test_bitcast_disk_engine_nullable_primary_key() -> Result<()> {
         let mut temp_file = std::env::temp_dir();
@@ -359,7 +363,17 @@ mod tests {
         temp_file.push("sqldb-bitcast/test_bitcast_disk_default_mismatch.mrdb.log");
         let engine = BitCastDiskEngine::new(temp_file.clone())?;
         let res = helpers::run_default_value_mismatch_tests(engine);
-        std:: fs::remove_file(temp_file)?;
+        std::fs::remove_file(temp_file)?;
+        res
+    }
+
+    #[test]
+    fn test_bitcast_disk_engine_order_by() -> Result<()> {
+        let mut temp_file = std::env::temp_dir();
+        temp_file.push("sqldb-bitcast/test_bitcast_disk_order_by.mrdb.log");
+        let engine = BitCastDiskEngine::new(temp_file.clone())?;
+        let res = helpers::run_order_by_tests(engine);
+        std::fs::remove_file(temp_file)?;
         res
     }
 
@@ -1008,6 +1022,86 @@ mod tests {
                 _ => panic!("Expected Scan result"),
             }
 
+            Ok(())
+        }
+
+        pub fn run_order_by_tests<E: storage::Engine + 'static>(engine: E) -> Result<()> {
+            let kv_engine = KVEngine::new(engine);
+            let session = kv_engine.session()?;
+
+            session.execute(
+                "CREATE TABLE order_test (id INT PRIMARY KEY NOT NULL, name TEXT, age INT);",
+            )?;
+            session.execute("INSERT INTO order_test VALUES (3, 'Charlie', 30);")?;
+            session.execute("INSERT INTO order_test VALUES (1, 'Alice', 25);")?;
+            session.execute("INSERT INTO order_test VALUES (2, 'Bob',   20);")?;
+
+            if let ResultSet::Scan { rows, .. } =
+                session.execute("SELECT * FROM order_test ORDER BY id ASC;")?
+            {
+                let ids: Vec<i64> = rows
+                    .into_iter()
+                    .map(|r| {
+                        if let Value::Integer(i) = r[0] {
+                            i
+                        } else {
+                            panic!("Expected integer")
+                        }
+                    })
+                    .collect();
+                assert_eq!(ids, vec![1, 2, 3]);
+            } else {
+                panic!("Expected Scan result for ORDER BY id ASC");
+            }
+
+            if let ResultSet::Scan { rows, .. } =
+                session.execute("SELECT * FROM order_test ORDER BY id DESC;")?
+            {
+                let ids: Vec<i64> = rows
+                    .into_iter()
+                    .map(|r| {
+                        if let Value::Integer(i) = r[0] {
+                            i
+                        } else {
+                            panic!("Expected integer")
+                        }
+                    })
+                    .collect();
+                assert_eq!(ids, vec![3, 2, 1]);
+            } else {
+                panic!("Expected Scan result for ORDER BY id DESC");
+            }
+
+            session.execute("INSERT INTO order_test VALUES (4, 'David', 20);")?;
+            if let ResultSet::Scan { rows, .. } =
+                session.execute("SELECT * FROM order_test ORDER BY age ASC, name DESC;")?
+            {
+                let expected = vec![
+                    vec![
+                        Value::Integer(4),
+                        Value::String("David".into()),
+                        Value::Integer(20),
+                    ],
+                    vec![
+                        Value::Integer(2),
+                        Value::String("Bob".into()),
+                        Value::Integer(20),
+                    ],
+                    vec![
+                        Value::Integer(1),
+                        Value::String("Alice".into()),
+                        Value::Integer(25),
+                    ],
+                    vec![
+                        Value::Integer(3),
+                        Value::String("Charlie".into()),
+                        Value::Integer(30),
+                    ],
+                ];
+                assert_eq!(rows, expected);
+            } else {
+                panic!("Expected Scan result for multi-column ORDER BY");
+            }
             Ok(())
         }
     }

@@ -1,6 +1,7 @@
 use super::{
     engine::Transaction,
     executor::{Executor, ResultSet},
+    parser::ast::OrderDirection,
 };
 use crate::error::Result;
 use crate::sql::{parser::ast, parser::ast::Expression, plan::planner::Planner, schema::Table};
@@ -29,14 +30,22 @@ pub enum Node {
         filter: Option<(String, Expression)>,
     },
 
+    // Update Node
     Update {
         table_name: String,
         columns: BTreeMap<String, Expression>,
         source: Box<Node>,
     },
 
+    // Delete Node
     Delete {
         table_name: String,
+        source: Box<Node>,
+    },
+
+    // Order Node
+    Order {
+        order_by: Vec<(String, OrderDirection)>,
         source: Box<Node>,
     },
 }

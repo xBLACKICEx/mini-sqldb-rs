@@ -1,7 +1,7 @@
 use super::{engine::Transaction, plan::Node, types::Row};
 use crate::error::Result;
 use mutation::{Delete, Insert, Update};
-use query::Scan;
+use query::{Order, Scan};
 use schema::CreateTable;
 
 mod mutation;
@@ -32,6 +32,8 @@ impl<T: Transaction + 'static> dyn Executor<T> {
             } => Update::new(table_name, columns, Self::build(*source)),
 
             Node::Delete { table_name, source } => Delete::new(table_name, Self::build(*source)),
+
+            Node::Order { order_by, source } => Order::new(order_by, Self::build(*source))
         }
     }
 }

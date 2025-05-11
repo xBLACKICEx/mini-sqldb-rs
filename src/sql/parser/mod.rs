@@ -1,10 +1,12 @@
-use super::types::DataType;
-use crate::error::{Error, Result};
-use crate::sql::parser::ast::Expression;
-use ast::Column;
+use std::{collections::BTreeMap, iter::Peekable};
+
+use ast::{Column, Expression, OrderDirection};
 use lexer::{Keyword, Lexer, Token};
-use std::collections::BTreeMap;
-use std::iter::Peekable;
+
+use crate::error::{Error, Result};
+
+use super::types::DataType;
+
 
 pub(super) mod ast;
 mod lexer;
@@ -168,12 +170,10 @@ impl<'a> Parser<'a> {
         // Expect the table name
         let table_name = self.next_ident()?;
 
-        // Parse optional WHERE clause
-        let where_clause = self.parse_where_clause()?;
-
         Ok(ast::Statement::Select {
             table_name,
-            where_clause,
+            where_clause: self.parse_where_clause()?,
+            order_by: self.parse_order_clause()?,
         })
     }
 
@@ -292,6 +292,33 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_order_clause(&mut self) -> Result<Vec<(String, OrderDirection)>> {
+        let mut orders = vec![];
+
+        if self.next_if_token(Token::Keyword(Keyword::Order)).is_none() {
+            return Ok(orders);
+        }
+        self.next_expect(Token::Keyword(Keyword::By))?;
+
+        loop {
+            let col = self.next_ident()?;
+            let ord = match self.next_if(|t| {
+                matches!(t, Token::Keyword(Keyword::Asc) | Token::Keyword(Keyword::Desc))
+            }) {
+                Some(Token::Keyword(Keyword::Asc)) => OrderDirection::Asc,
+                Some(Token::Keyword(Keyword::Desc)) => OrderDirection::Desc,
+                _ => OrderDirection::Asc,
+            };
+            orders.push((col, ord));
+
+            if self.next_if_token(Token::Comma).is_none() {
+                break;
+            }
+        }
+
+        Ok(orders)
+    }
+
     fn peek(&mut self) -> Result<Option<Token>> {
         self.lexer.peek().cloned().transpose()
     }
@@ -317,7 +344,7 @@ impl<'a> Parser<'a> {
         match self.next()? {
             token if token == expected => Ok(()),
             token => Err(Error::ParserError(format!(
-                "[Parser] Expected token {expected}, got {token}"
+                "[Parser] Expected token {expected} but got {token}"
             ))),
         }
     }
@@ -338,6 +365,8 @@ impl<'a> Parser<'a> {
 
 #[cfg(test)]
 mod tests {
+    use crate::sql::parser::ast::{Consts, Statement};
+
     // use super::ast;
     // use super::types::DataType;
     // use super::Parser;
@@ -396,166 +425,145 @@ mod tests {
         assert!(stmt.is_err());
     }
 
+    macro_rules! parse_eq {
+        ($sql:expr, $expected:expr) => {
+            assert_eq!(Parser::new($sql).parse().unwrap(), $expected);
+        };
+    }
+
     #[test]
     fn test_select() {
-        let sql = "SELECT * FROM my_table;";
-        let mut parser = Parser::new(sql);
-        let stmt = parser.parse().expect("Failed to parse SELECT");
-        match stmt {
-            ast::Statement::Select { table_name, where_clause } => {
-                assert_eq!(table_name, "my_table");
-                assert!(where_clause.is_none(), "Expected no WHERE clause");
+        use OrderDirection::*;
+
+        parse_eq!(
+            "SELECT * FROM my_table;",
+            ast::Statement::Select {
+                table_name: "my_table".to_string(),
+                where_clause: None,
+                order_by: vec![],
             }
-            _ => panic!("Statement should be Select"),
-        }
+        );
+
+        parse_eq!(
+            "SELECT * FROM my_table ORDER by a, b asc, c desc;",
+            ast::Statement::Select {
+                table_name: "my_table".to_string(),
+                where_clause: None,
+                order_by: vec![
+                    ("a".to_string(), Asc),
+                    ("b".to_string(), Asc),
+                    ("c".to_string(), Desc)
+                ],
+            }
+        );
     }
 
     #[test]
     fn test_select_with_where() {
-        let sql = "SELECT * FROM my_table WHERE id = 42;";
-        let mut parser = Parser::new(sql);
-        let stmt = parser.parse().expect("Failed to parse SELECT with WHERE");
-        match stmt {
+        parse_eq!(
+            "SELECT * FROM my_table WHERE id = 42;",
             ast::Statement::Select {
-                table_name,
-                where_clause,
-            } => {
-                assert_eq!(table_name, "my_table");
-                let where_clause = where_clause.expect("Expected WHERE clause");
-                assert_eq!(where_clause.0, "id");
-                assert_eq!(
-                    where_clause.1,
-                    ast::Expression::Consts(ast::Consts::Integer(42))
-                );
+                table_name: "my_table".to_string(),
+                where_clause: Some(("id".to_string(), Expression::Consts(Consts::Integer(42)))),
+                order_by: Vec::new(),
             }
-            _ => panic!("Statement should be Select"),
-        }
+        );
     }
 
     #[test]
     fn test_insert_with_columns() {
-        let sql = "INSERT INTO my_table (id, name) VALUES (1, 'Alice'), (2, 'Bob');";
-        let mut parser = Parser::new(sql);
-        let stmt = parser.parse().expect("Failed to parse INSERT with columns");
-        match stmt {
-            ast::Statement::Insert {
-                table_name,
-                columns,
-                values,
-            } => {
-                assert_eq!(table_name, "my_table");
-                let cols = columns.expect("Expected columns for INSERT");
-                assert_eq!(cols, vec!["id", "name"]);
-                assert_eq!(values.len(), 2);
-
-                // We assume expressions are represented via ast::Expression.
-                // Here we just check that each row contains the correct number of expressions.
-                for row in values {
-                    assert_eq!(row.len(), 2);
-                }
+        let mut vals = Vec::new();
+        // 这里只关注行数和列数，也可以把具体 Expression 展开
+        vals.push(vec![
+            Expression::Consts(Consts::Integer(1)),
+            Expression::Consts(Consts::String("Alice".into())),
+        ]);
+        vals.push(vec![
+            Expression::Consts(Consts::Integer(2)),
+            Expression::Consts(Consts::String("Bob".into())),
+        ]);
+        parse_eq!(
+            "INSERT INTO my_table (id, name) VALUES (1, 'Alice'), (2, 'Bob');",
+            Statement::Insert {
+                table_name: "my_table".to_string(),
+                columns: Some(vec!["id".to_string(), "name".to_string()]),
+                values: vals,
             }
-            _ => panic!("Statement should be Insert"),
-        }
+        );
     }
 
     #[test]
     fn test_insert_without_columns() {
-        let sql = "INSERT INTO my_table VALUES (1, 'Alice');";
-        let mut parser = Parser::new(sql);
-        let stmt = parser
-            .parse()
-            .expect("Failed to parse INSERT without columns");
-        match stmt {
-            ast::Statement::Insert {
-                table_name,
-                columns,
-                values,
-            } => {
-                assert_eq!(table_name, "my_table");
-                assert!(columns.is_none(), "Expected no columns for INSERT");
-                assert_eq!(values.len(), 1);
+        parse_eq!(
+            "INSERT INTO my_table VALUES (1, 'Alice');",
+            Statement::Insert {
+                table_name: "my_table".to_string(),
+                columns: None,
+                values: vec![vec![
+                    Expression::Consts(Consts::Integer(1)),
+                    Expression::Consts(Consts::String("Alice".into())),
+                ]],
             }
-            _ => panic!("Statement should be Insert"),
-        }
+        );
     }
 
     #[test]
     fn test_missing_semicolon_error() {
-        let sql = "SELECT * FROM my_table";
-        let mut parser = Parser::new(sql);
-        let res = parser.parse();
-        assert!(res.is_err(), "Expected error due to missing semicolon");
+        assert!(Parser::new("SELECT * FROM my_table").parse().is_err());
     }
 
     #[test]
     fn test_unexpected_token_error() {
-        let sql = "RANDOM TOKEN;";
-        let mut parser = Parser::new(sql);
-        let res = parser.parse();
-        assert!(res.is_err(), "Expected error for unexpected token");
+        assert!(Parser::new("RANDOM TOKEN;").parse().is_err());
     }
 
     #[test]
     fn test_update() {
-        let sql = "UPDATE my_table SET name = 'Alice', age = 30 WHERE id = 1;";
-        let mut parser = Parser::new(sql);
-        let stmt = parser.parse().expect("Failed to parse UPDATE");
-        match stmt {
-            ast::Statement::Update {
-                table_name,
-                columns,
-                where_clause,
-            } => {
-                assert_eq!(table_name, "my_table");
-                assert_eq!(columns.len(), 2);
-                assert_eq!(
-                    columns["name"],
-                    ast::Expression::Consts(ast::Consts::String("Alice".to_string()))
-                );
-                assert_eq!(
-                    columns["age"],
-                    ast::Expression::Consts(ast::Consts::Integer(30))
-                );
-                let where_clause = where_clause.expect("Expected WHERE clause");
-                assert_eq!(where_clause.0, "id");
-                assert_eq!(
-                    where_clause.1,
-                    ast::Expression::Consts(ast::Consts::Integer(1))
-                );
+        let mut cols = BTreeMap::new();
+        cols.insert(
+            "name".to_string(),
+            Expression::Consts(Consts::String("Alice".into())),
+        );
+        cols.insert("age".to_string(), Expression::Consts(Consts::Integer(30)));
+        parse_eq!(
+            "UPDATE my_table SET name = 'Alice', age = 30 WHERE id = 1;",
+            Statement::Update {
+                table_name: "my_table".to_string(),
+                columns: cols,
+                where_clause: Some(("id".to_string(), Expression::Consts(Consts::Integer(1)))),
             }
-            _ => panic!("Statement should be Update"),
+        );
+    }
+
+    #[test]
+    fn test_update_failure_scenarios() {
+        // Test duplicate column in SET clause
+        let sql = "UPDATE my_table SET name = 'Alice', name = 'Bob' WHERE id = 1;";
+        let mut parser = Parser::new(sql);
+        let result = parser.parse();
+        assert!(result.is_err(), "Should fail on duplicate column name");
+        if let Err(Error::ParserError(msg)) = result {
+            assert!(msg.contains("Duplicate column name"));
+        } else {
+            panic!("Expected ParserError with duplicate column message");
         }
+
+        // Test invalid syntax (missing SET keyword)
+        let sql = "UPDATE my_table name = 'Alice' WHERE id = 1;";
+        let mut parser = Parser::new(sql);
+        let result = parser.parse();
+        assert!(result.is_err(), "Should fail when SET keyword is missing");
+
+        // Test invalid expression in SET clause
+        let sql = "UPDATE my_table SET name = WHERE id = 1;";
+        let mut parser = Parser::new(sql);
+        let result = parser.parse();
+        assert!(result.is_err(), "Should fail with invalid expression");
+
+        // Test invalid WHERE clause
+        let sql = "UPDATE my_table SET name = 'Alice' WHERE;";
+        let mut parser = Parser::new(sql);
+        let result = parser.parse();
+        assert!(result.is_err(), "Should fail with incomplete WHERE clause");
     }
-}
-
-#[test]
-fn test_update_failure_scenarios() {
-    // Test duplicate column in SET clause
-    let sql = "UPDATE my_table SET name = 'Alice', name = 'Bob' WHERE id = 1;";
-    let mut parser = Parser::new(sql);
-    let result = parser.parse();
-    assert!(result.is_err(), "Should fail on duplicate column name");
-    if let Err(Error::ParserError(msg)) = result {
-        assert!(msg.contains("Duplicate column name"));
-    } else {
-        panic!("Expected ParserError with duplicate column message");
-    }
-
-    // Test invalid syntax (missing SET keyword)
-    let sql = "UPDATE my_table name = 'Alice' WHERE id = 1;";
-    let mut parser = Parser::new(sql);
-    let result = parser.parse();
-    assert!(result.is_err(), "Should fail when SET keyword is missing");
-
-    // Test invalid expression in SET clause
-    let sql = "UPDATE my_table SET name = WHERE id = 1;";
-    let mut parser = Parser::new(sql);
-    let result = parser.parse();
-    assert!(result.is_err(), "Should fail with invalid expression");
-
-    // Test invalid WHERE clause
-    let sql = "UPDATE my_table SET name = 'Alice' WHERE;";
-    let mut parser = Parser::new(sql);
-    let result = parser.parse();
-    assert!(result.is_err(), "Should fail with incomplete WHERE clause");
 }

@@ -87,6 +87,10 @@ pub enum Keyword {
     Select,
     From,
     Where,
+    Order,
+    By,
+    Asc,
+    Desc
 }
 
 /// Lexical Analyzer Lexer Definition
