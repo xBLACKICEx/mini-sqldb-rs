@@ -7,7 +7,6 @@ use crate::error::{Error, Result};
 
 use super::types::DataType;
 
-
 pub(super) mod ast;
 mod lexer;
 
@@ -174,6 +173,23 @@ impl<'a> Parser<'a> {
             table_name,
             where_clause: self.parse_where_clause()?,
             order_by: self.parse_order_clause()?,
+            limit: {
+                if self.next_if_token(Token::Keyword(Keyword::Limit)).is_some() {
+                    Some(self.parse_expression()?)
+                } else {
+                    None
+                }
+            },
+            offset: {
+                if self
+                    .next_if_token(Token::Keyword(Keyword::Offset))
+                    .is_some()
+                {
+                    Some(self.parse_expression()?)
+                } else {
+                    None
+                }
+            },
         })
     }
 
@@ -303,7 +319,10 @@ impl<'a> Parser<'a> {
         loop {
             let col = self.next_ident()?;
             let ord = match self.next_if(|t| {
-                matches!(t, Token::Keyword(Keyword::Asc) | Token::Keyword(Keyword::Desc))
+                matches!(
+                    t,
+                    Token::Keyword(Keyword::Asc) | Token::Keyword(Keyword::Desc)
+                )
             }) {
                 Some(Token::Keyword(Keyword::Asc)) => OrderDirection::Asc,
                 Some(Token::Keyword(Keyword::Desc)) => OrderDirection::Desc,
@@ -367,9 +386,7 @@ impl<'a> Parser<'a> {
 mod tests {
     use crate::sql::parser::ast::{Consts, Statement};
 
-    // use super::ast;
-    // use super::types::DataType;
-    // use super::Parser;
+
     use super::*;
 
     #[test]
@@ -441,6 +458,8 @@ mod tests {
                 table_name: "my_table".to_string(),
                 where_clause: None,
                 order_by: vec![],
+                limit: None,
+                offset: None
             }
         );
 
@@ -452,8 +471,10 @@ mod tests {
                 order_by: vec![
                     ("a".to_string(), Asc),
                     ("b".to_string(), Asc),
-                    ("c".to_string(), Desc)
+                    ("c".to_string(), Desc),
                 ],
+                limit: None,
+                offset: None
             }
         );
     }
@@ -461,11 +482,13 @@ mod tests {
     #[test]
     fn test_select_with_where() {
         parse_eq!(
-            "SELECT * FROM my_table WHERE id = 42;",
+            "SELECT * FROM my_table WHERE id = 42 limit 3 offset 3;",
             ast::Statement::Select {
                 table_name: "my_table".to_string(),
                 where_clause: Some(("id".to_string(), Expression::Consts(Consts::Integer(42)))),
                 order_by: Vec::new(),
+                limit: Some(Expression::Consts(Consts::Integer(3))),
+                offset: Some(Expression::Consts(Consts::Integer(3)))
             }
         );
     }

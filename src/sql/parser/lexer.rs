@@ -90,7 +90,9 @@ pub enum Keyword {
     Order,
     By,
     Asc,
-    Desc
+    Desc,
+    Limit,
+    Offset
 }
 
 /// Lexical Analyzer Lexer Definition
@@ -137,7 +139,7 @@ impl<'a> Lexer<'a> {
         self.next_while(char::is_whitespace);
     }
 
-    // If the condition is met, jump to the next character and return the character
+    /// If the condition is met, jump to the next character and return the character
     fn next_if<F: Fn(char) -> bool>(&mut self, predicate: F) -> Option<char> {
         self.iter.peek().filter(|&c| predicate(*c))?; // Return the current character if the condition is met
         self.iter.next()

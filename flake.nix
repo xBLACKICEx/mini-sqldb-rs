@@ -37,13 +37,15 @@
       {
         formatter = pkgs.nixfmt-rfc-style;
 
-        devShells.default = with pkgs; mkShell {
+        devShells.default =
+          with pkgs;
+          mkShell {
             buildInputs = [
               rustowl-flake.packages.${system}.rustowl
               lldb_20 # use lldb-dap for debug rust with vscode(Codelldb is buggy)
             ];
             packages = [ rustToolChain ];
-        };
+          };
       }
     );
 }

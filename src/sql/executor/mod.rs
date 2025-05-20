@@ -1,7 +1,7 @@
 use super::{engine::Transaction, plan::Node, types::Row};
 use crate::error::Result;
 use mutation::{Delete, Insert, Update};
-use query::{Order, Scan};
+use query::{Limit, Offset, Order, Scan};
 use schema::CreateTable;
 
 mod mutation;
@@ -16,24 +16,21 @@ impl<T: Transaction + 'static> dyn Executor<T> {
     pub fn build(node: Node) -> Box<dyn Executor<T>> {
         match node {
             Node::CreateTable { schema } => CreateTable::new(schema),
-
             Node::Insert {
                 table_name,
                 columns,
                 values,
             } => Insert::new(table_name, columns, values),
-
             Node::Scan { table_name, filter } => Scan::new(table_name, filter),
-
             Node::Update {
                 table_name,
                 columns,
                 source,
             } => Update::new(table_name, columns, Self::build(*source)),
-
             Node::Delete { table_name, source } => Delete::new(table_name, Self::build(*source)),
-
-            Node::Order { order_by, source } => Order::new(order_by, Self::build(*source))
+            Node::Order { order_by, source } => Order::new(order_by, Self::build(*source)),
+            Node::Limit { source, limit } => Limit::new(limit, Self::build(*source)),
+            Node::Offset { source, offset } => Offset::new(offset, Self::build(*source)),
         }
     }
 }

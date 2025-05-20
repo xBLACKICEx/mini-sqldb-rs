@@ -42,6 +42,7 @@ impl<T: Transaction> Order<T> {
         Box::new(Self { order_by, source })
     }
 }
+
 impl<T: Transaction> Executor<T> for Order<T> {
     fn execute(self: Box<Self>, txn: &mut T) -> Result<ResultSet> {
         match self.source.execute(txn)? {
@@ -75,9 +76,56 @@ impl<T: Transaction> Executor<T> for Order<T> {
                             }
                         }
                     }
+
                     Ordering::Equal
                 });
 
+                Ok(ResultSet::Scan { columns, rows })
+            }
+
+            _ => return Err(Error::InternalError("Unexpected result set".into())),
+        }
+    }
+}
+
+pub struct Offset<T> {
+    offset: usize,
+    source: Box<dyn Executor<T>>,
+}
+impl<T: Transaction> Offset<T> {
+    pub fn new(offset: usize, source: Box<dyn Executor<T>>) -> Box<Self> {
+        Box::new(Self { offset, source })
+    }
+}
+
+impl<T: Transaction> Executor<T> for Offset<T> {
+    fn execute(self: Box<Self>, txn: &mut T) -> Result<ResultSet> {
+        match self.source.execute(txn)? {
+            ResultSet::Scan { columns, mut rows } => {
+                rows = rows.into_iter().skip(self.offset).collect();
+                Ok(ResultSet::Scan { columns, rows })
+            }
+
+            _ => return Err(Error::InternalError("Unexpected result set".into())),
+        }
+    }
+}
+
+pub struct Limit<T> {
+    limit: usize,
+    source: Box<dyn Executor<T>>,
+}
+impl<T: Transaction> Limit<T> {
+    pub fn new(limit: usize, source: Box<dyn Executor<T>>) -> Box<Self> {
+        Box::new(Self { limit, source })
+    }
+}
+
+impl<T: Transaction> Executor<T> for Limit<T> {
+    fn execute(self: Box<Self>, txn: &mut T) -> Result<ResultSet> {
+        match self.source.execute(txn)? {
+            ResultSet::Scan { columns, mut rows } => {
+                rows = rows.into_iter().take(self.limit).collect();
                 Ok(ResultSet::Scan { columns, rows })
             }
 

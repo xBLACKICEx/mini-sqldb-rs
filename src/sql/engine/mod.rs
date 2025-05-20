@@ -60,7 +60,7 @@ impl<E: Engine + 'static> Session<E> {
         let mut txn = self.engine.begin()?;
 
         // Build plan and execute SQL statement
-        match Plan::build(stmt).execute(&mut txn) {
+        match Plan::build(stmt)?.execute(&mut txn) {
             Ok(rs) => {
                 txn.commit()?;
                 Ok(rs)

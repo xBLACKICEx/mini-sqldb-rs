@@ -16,7 +16,9 @@ pub enum Statement {
     Select {
         table_name: String,
         where_clause: Option<(String, Expression)>,
-        order_by: Vec<(String, OrderDirection)>
+        order_by: Vec<(String, OrderDirection)>,
+        limit: Option<Expression>,
+        offset: Option<Expression>,
     },
 
     Update {

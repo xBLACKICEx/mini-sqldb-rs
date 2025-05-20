@@ -9,6 +9,7 @@ use crate::storage::keycode::serialize_key;
 use crate::storage::mvcc;
 use crate::{sql, storage};
 
+/// KV Engine definition, actually a wrapper for Mvcc in the storage engine.
 pub struct KVEngine<E: storage::Engine> {
     pub kv: storage::Mvcc<E>,
 }
@@ -144,17 +145,6 @@ impl<E: storage::Engine> Transaction for KVTransaction<E> {
         Ok(rows)
     }
 
-    fn get_table(&mut self, table_name: &str) -> Result<Option<Table>> {
-        let key = Key::Table(table_name.to_string()).encode()?;
-        let v = self
-            .txn
-            .get(key)?
-            .map(|v| bincode::serde::decode_from_slice(&v, bincode::config::legacy()))
-            .transpose()?;
-
-        Ok(v.map(|(table, _)| table))
-    }
-
     fn update_row(&mut self, table: &Table, id: &Value, row: Row) -> Result<()> {
         let new_pk = table.get_primary_key(&row)?;
 
@@ -176,6 +166,17 @@ impl<E: storage::Engine> Transaction for KVTransaction<E> {
         self.txn.delete(key)?;
 
         Ok(())
+    }
+
+    fn get_table(&mut self, table_name: &str) -> Result<Option<Table>> {
+        let key = Key::Table(table_name.to_string()).encode()?;
+        let v = self
+            .txn
+            .get(key)?
+            .map(|v| bincode::serde::decode_from_slice(&v, bincode::config::legacy()))
+            .transpose()?;
+
+        Ok(v.map(|(table, _)| table))
     }
 }
 
@@ -273,7 +274,6 @@ mod tests {
     fn test_memory_engine_order_by() -> Result<()> {
         helpers::run_order_by_tests(MemoryEngine::new())
     }
-
 
     #[test]
     fn test_bitcast_disk_engine_table_operations() -> Result<()> {
@@ -1030,77 +1030,136 @@ mod tests {
             let session = kv_engine.session()?;
 
             session.execute(
-                "CREATE TABLE order_test (id INT PRIMARY KEY NOT NULL, name TEXT, age INT);",
+            "CREATE TABLE order_test (id INT PRIMARY KEY NOT NULL, name TEXT, age INT);",
             )?;
             session.execute("INSERT INTO order_test VALUES (3, 'Charlie', 30);")?;
             session.execute("INSERT INTO order_test VALUES (1, 'Alice', 25);")?;
             session.execute("INSERT INTO order_test VALUES (2, 'Bob',   20);")?;
 
+            // Test ORDER BY id ASC
             if let ResultSet::Scan { rows, .. } =
-                session.execute("SELECT * FROM order_test ORDER BY id ASC;")?
+            session.execute("SELECT * FROM order_test ORDER BY id ASC;")?
             {
-                let ids: Vec<i64> = rows
-                    .into_iter()
-                    .map(|r| {
-                        if let Value::Integer(i) = r[0] {
-                            i
-                        } else {
-                            panic!("Expected integer")
-                        }
-                    })
-                    .collect();
-                assert_eq!(ids, vec![1, 2, 3]);
+            let ids: Vec<i64> = rows
+                .into_iter()
+                .map(|r| {
+                if let Value::Integer(i) = r[0] {
+                    i
+                } else {
+                    panic!("Expected integer")
+                }
+                })
+                .collect();
+            assert_eq!(ids, vec![1, 2, 3]);
             } else {
-                panic!("Expected Scan result for ORDER BY id ASC");
+            panic!("Expected Scan result for ORDER BY id ASC");
             }
 
+            // Test ORDER BY id DESC
             if let ResultSet::Scan { rows, .. } =
-                session.execute("SELECT * FROM order_test ORDER BY id DESC;")?
+            session.execute("SELECT * FROM order_test ORDER BY id DESC;")?
             {
-                let ids: Vec<i64> = rows
-                    .into_iter()
-                    .map(|r| {
-                        if let Value::Integer(i) = r[0] {
-                            i
-                        } else {
-                            panic!("Expected integer")
-                        }
-                    })
-                    .collect();
-                assert_eq!(ids, vec![3, 2, 1]);
+            let ids: Vec<i64> = rows
+                .into_iter()
+                .map(|r| {
+                if let Value::Integer(i) = r[0] {
+                    i
+                } else {
+                    panic!("Expected integer")
+                }
+                })
+                .collect();
+            assert_eq!(ids, vec![3, 2, 1]);
             } else {
-                panic!("Expected Scan result for ORDER BY id DESC");
+            panic!("Expected Scan result for ORDER BY id DESC");
+            }
+
+            // Test LIMIT and OFFSET
+            if let ResultSet::Scan { rows, .. } =
+            session.execute("SELECT * FROM order_test ORDER BY id ASC LIMIT 2 OFFSET 1;")?
+            {
+            let ids: Vec<i64> = rows
+                .iter()
+                .map(|r| {
+                if let Value::Integer(i) = r[0] {
+                    i
+                } else {
+                    panic!("Expected integer")
+                }
+                })
+                .collect();
+            assert_eq!(ids, vec![2, 3]);
+            } else {
+            panic!("Expected Scan result for ORDER BY id ASC with LIMIT/OFFSET");
+            }
+
+            // Test LIMIT only
+            if let ResultSet::Scan { rows, .. } =
+            session.execute("SELECT * FROM order_test ORDER BY id ASC LIMIT 1;")?
+            {
+            let ids: Vec<i64> = rows
+                .iter()
+                .map(|r| {
+                if let Value::Integer(i) = r[0] {
+                    i
+                } else {
+                    panic!("Expected integer")
+                }
+                })
+                .collect();
+            assert_eq!(ids, vec![1]);
+            } else {
+            panic!("Expected Scan result for ORDER BY id ASC with LIMIT");
+            }
+
+            // Test OFFSET only
+            if let ResultSet::Scan { rows, .. } =
+            session.execute("SELECT * FROM order_test ORDER BY id ASC OFFSET 2;")?
+            {
+            let ids: Vec<i64> = rows
+                .iter()
+                .map(|r| {
+                if let Value::Integer(i) = r[0] {
+                    i
+                } else {
+                    panic!("Expected integer")
+                }
+                })
+                .collect();
+            assert_eq!(ids, vec![3]);
+            } else {
+            panic!("Expected Scan result for ORDER BY id ASC with OFFSET");
             }
 
             session.execute("INSERT INTO order_test VALUES (4, 'David', 20);")?;
             if let ResultSet::Scan { rows, .. } =
-                session.execute("SELECT * FROM order_test ORDER BY age ASC, name DESC;")?
+            session.execute("SELECT * FROM order_test ORDER BY age ASC, name DESC;")?
             {
-                let expected = vec![
-                    vec![
-                        Value::Integer(4),
-                        Value::String("David".into()),
-                        Value::Integer(20),
-                    ],
-                    vec![
-                        Value::Integer(2),
-                        Value::String("Bob".into()),
-                        Value::Integer(20),
-                    ],
-                    vec![
-                        Value::Integer(1),
-                        Value::String("Alice".into()),
-                        Value::Integer(25),
-                    ],
-                    vec![
-                        Value::Integer(3),
-                        Value::String("Charlie".into()),
-                        Value::Integer(30),
-                    ],
-                ];
-                assert_eq!(rows, expected);
+            let expected = vec![
+                vec![
+                Value::Integer(4),
+                Value::String("David".into()),
+                Value::Integer(20),
+                ],
+                vec![
+                Value::Integer(2),
+                Value::String("Bob".into()),
+                Value::Integer(20),
+                ],
+                vec![
+                Value::Integer(1),
+                Value::String("Alice".into()),
+                Value::Integer(25),
+                ],
+                vec![
+                Value::Integer(3),
+                Value::String("Charlie".into()),
+                Value::Integer(30),
+                ],
+            ];
+            assert_eq!(rows, expected);
             } else {
-                panic!("Expected Scan result for multi-column ORDER BY");
+            panic!("Expected Scan result for multi-column ORDER BY");
             }
             Ok(())
         }
